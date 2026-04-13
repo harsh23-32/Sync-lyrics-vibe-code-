@@ -356,10 +356,27 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
     display: inline-block;
     padding: 0 2px;
     cursor: pointer;
-    /* base: dim. JS will set -webkit-text-fill-color + backgroundImage inline */
-    color: rgba(255,255,255,0.3);
+    position: relative;
+    color: transparent; /* base text invisible — overlay handles everything */
 }
-/* No sweep child, no background-clip in CSS — all handled in JS */
+/* Dim underlay — always visible, shows word in gray */
+.pk-word::before {
+    content: attr(data-word);
+    position: absolute; top: 0; left: 0;
+    color: rgba(255,255,255,0.28);
+    white-space: nowrap;
+    pointer-events: none;
+}
+/* White overlay — clips from left, expands right */
+.pk-word .pk-fill {
+    position: absolute; top: 0; left: 0;
+    overflow: hidden;
+    width: 0%;
+    white-space: nowrap;
+    color: #fff;
+    pointer-events: none;
+}
+/* No .pk-sweep element needed anymore */
 .preview-line .redo-btn {
     margin-left: auto; flex-shrink: 0;
     padding: 4px 12px; background: transparent; border: 1px solid #2a2a2a;
@@ -1497,12 +1514,18 @@ function openPreview() {
                 txt.textContent = line.text;
                 div.appendChild(txt);
             } else {
-                // Word mode: build sweep words (single element, no duplicate text)
+                // Word mode: overlay-based sweep, no blur
                 line.words.forEach(function(word, wi) {
                     var outer = document.createElement('span');
                     outer.className = 'pk-word';
                     outer.id = 'pkw-' + li + '_' + wi;
-                    outer.textContent = word.t;
+                    outer.setAttribute('data-word', word.t);
+                    outer.textContent = word.t; // sets width correctly
+                    // White fill overlay
+                    var fill = document.createElement('span');
+                    fill.className = 'pk-fill';
+                    fill.textContent = word.t;
+                    outer.appendChild(fill);
                     div.appendChild(outer);
                     if (wi < line.words.length - 1) div.appendChild(document.createTextNode(' '));
                 });
@@ -1604,52 +1627,38 @@ function startPreviewLoop() {
                 line.words.forEach(function(word, wi) {
                     var el = document.getElementById('pkw-' + li + '_' + wi);
                     if (!el) return;
+                    var fill = el.querySelector('.pk-fill');
+                    if (!fill) return;
 
                     if (word.s === null) {
-                        // never stamped — plain dim color
-                        el.style.backgroundImage = '';
-                        el.style.webkitBackgroundClip = '';
-                        el.style.backgroundClip = '';
-                        el.style.webkitTextFillColor = '';
-                        el.style.color = 'rgba(255,255,255,0.3)';
-                        return;
-                    }
-
-                    if (word.e !== null && t >= word.e) {
-                        // PAST — stay full white, no dimming
-                        el.style.backgroundImage = '';
-                        el.style.webkitBackgroundClip = '';
-                        el.style.backgroundClip = '';
-                        el.style.webkitTextFillColor = '';
-                        el.style.color = '#fff';
+                        // never stamped — stay dim, fill at 0
+                        fill.style.width = '0%';
                         return;
                     }
 
                     if (t < word.s) {
-                        // upcoming — dim
-                        el.style.backgroundImage = '';
-                        el.style.webkitBackgroundClip = '';
-                        el.style.backgroundClip = '';
-                        el.style.webkitTextFillColor = '';
-                        el.style.color = 'rgba(255,255,255,0.3)';
+                        // not reached yet
+                        fill.style.width = '0%';
                         return;
                     }
 
-                    // SWEEPING — gradient clip
-                    var pct;
-                    if (word.e !== null) {
-                        var progress = (t - word.s) / (word.e - word.s);
-                        var eased = progress < 0.5 ? 2*progress*progress : -1+(4-2*progress)*progress;
-                        pct = Math.min(100, eased * 100);
-                    } else {
-                        pct = 100; // stamped, no end — full white
+                    if (word.e !== null && t >= word.e) {
+                        // fully past — full white, stays
+                        fill.style.width = '100%';
+                        return;
                     }
-                    var grad = 'linear-gradient(to right, #fff ' + pct.toFixed(1) + '%, rgba(255,255,255,0.3) ' + pct.toFixed(1) + '%)';
-                    el.style.backgroundImage = grad;
-                    el.style.webkitBackgroundClip = 'text';
-                    el.style.backgroundClip = 'text';
-                    el.style.webkitTextFillColor = 'transparent';
-                    el.style.color = 'transparent';
+
+                    if (word.e !== null) {
+                        // sweeping
+                        var progress = (t - word.s) / (word.e - word.s);
+                        var eased = progress < 0.5
+                            ? 2 * progress * progress
+                            : -1 + (4 - 2 * progress) * progress;
+                        fill.style.width = Math.min(100, eased * 100).toFixed(1) + '%';
+                    } else {
+                        // stamped, no end time — snap to full
+                        fill.style.width = '100%';
+                    }
                 });
             });
         }
