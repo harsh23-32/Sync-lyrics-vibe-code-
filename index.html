@@ -119,13 +119,15 @@ textarea::placeholder { color: var(--muted); }
 }
 .lyric-line {
     padding: 10px 24px; font-size: 1.4rem; font-weight: 700;
-    color: rgba(255,255,255,0.18); line-height: 1.6;
-    transform: scale(0.95) translateY(2px); transform-origin: left center;
+    color: rgba(255,255,255,0.2); line-height: 1.6;
+    transform: scale(0.96); transform-origin: left center;
     border-radius: 14px; margin: 2px 8px;
-    transition: color 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
-    opacity: 0.7;
+    transition: color 0.35s cubic-bezier(0.4,0,0.2,1),
+                transform 0.35s cubic-bezier(0.4,0,0.2,1),
+                opacity 0.35s cubic-bezier(0.4,0,0.2,1);
+    opacity: 0.5;
 }
-.lyric-line.active { color: rgba(255,255,255,0.9); transform: scale(1) translateY(0); opacity: 1; }
+.lyric-line.active { color: rgba(255,255,255,0.92); transform: scale(1); opacity: 1; }
 .lyric-line.music-line {
     font-size: 0.9rem; color: rgba(255,255,255,0.1);
     font-style: italic; letter-spacing: 3px;
@@ -354,18 +356,10 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
     display: inline-block;
     padding: 0 2px;
     cursor: pointer;
-    background: linear-gradient(to right, #fff 0%, rgba(255,255,255,0.25) 0%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    /* base: dim. JS will set -webkit-text-fill-color + backgroundImage inline */
+    color: rgba(255,255,255,0.3);
 }
-.pk-word.pk-past {
-    background: linear-gradient(to right, rgba(255,255,255,0.5) 100%, rgba(255,255,255,0.5) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-/* No .pk-sweep element needed anymore */
+/* No sweep child, no background-clip in CSS — all handled in JS */
 .preview-line .redo-btn {
     margin-left: auto; flex-shrink: 0;
     padding: 4px 12px; background: transparent; border: 1px solid #2a2a2a;
@@ -1603,39 +1597,62 @@ function startPreviewLoop() {
             lastActiveLi = activeLi;
         }
 
-        // Update word sweeps
-        S.lyrics.forEach(function(line, li) {
-            if (line.type !== 'lyric' || S.mode === 'line') return;
-            line.words.forEach(function(word, wi) {
-                var el = document.getElementById('pkw-' + li + '_' + wi);
-                if (!el) return;
-                if (word.s === null) return; // never tapped
+        // Update word sweeps (word mode only)
+        if (S.mode !== 'line') {
+            S.lyrics.forEach(function(line, li) {
+                if (line.type !== 'lyric') return;
+                line.words.forEach(function(word, wi) {
+                    var el = document.getElementById('pkw-' + li + '_' + wi);
+                    if (!el) return;
 
-                var pct;
-                if (t < word.s) {
-                    // upcoming — reset to CSS default (dim)
-                    el.classList.remove('pk-past');
-                    el.style.backgroundImage = '';
-                    return;
-                } else if (word.e !== null && t >= word.e) {
-                    // fully past — clear inline style, let .pk-past CSS handle it
-                    el.classList.add('pk-past');
-                    el.style.backgroundImage = '';
-                    return;
-                } else if (word.e !== null) {
-                    // actively sweeping
-                    el.classList.remove('pk-past');
-                    var progress = (t - word.s) / (word.e - word.s);
-                    var eased = progress < 0.5 ? 2*progress*progress : -1+(4-2*progress)*progress;
-                    pct = Math.min(100, eased * 100);
-                } else {
-                    // stamped but no end time
-                    el.classList.remove('pk-past');
-                    pct = t >= word.s ? 100 : 0;
-                }
-                el.style.backgroundImage = 'linear-gradient(to right, #fff ' + pct.toFixed(1) + '%, rgba(255,255,255,0.25) ' + pct.toFixed(1) + '%)';
+                    if (word.s === null) {
+                        // never stamped — plain dim color
+                        el.style.backgroundImage = '';
+                        el.style.webkitBackgroundClip = '';
+                        el.style.backgroundClip = '';
+                        el.style.webkitTextFillColor = '';
+                        el.style.color = 'rgba(255,255,255,0.3)';
+                        return;
+                    }
+
+                    if (word.e !== null && t >= word.e) {
+                        // PAST — stay full white, no dimming
+                        el.style.backgroundImage = '';
+                        el.style.webkitBackgroundClip = '';
+                        el.style.backgroundClip = '';
+                        el.style.webkitTextFillColor = '';
+                        el.style.color = '#fff';
+                        return;
+                    }
+
+                    if (t < word.s) {
+                        // upcoming — dim
+                        el.style.backgroundImage = '';
+                        el.style.webkitBackgroundClip = '';
+                        el.style.backgroundClip = '';
+                        el.style.webkitTextFillColor = '';
+                        el.style.color = 'rgba(255,255,255,0.3)';
+                        return;
+                    }
+
+                    // SWEEPING — gradient clip
+                    var pct;
+                    if (word.e !== null) {
+                        var progress = (t - word.s) / (word.e - word.s);
+                        var eased = progress < 0.5 ? 2*progress*progress : -1+(4-2*progress)*progress;
+                        pct = Math.min(100, eased * 100);
+                    } else {
+                        pct = 100; // stamped, no end — full white
+                    }
+                    var grad = 'linear-gradient(to right, #fff ' + pct.toFixed(1) + '%, rgba(255,255,255,0.3) ' + pct.toFixed(1) + '%)';
+                    el.style.backgroundImage = grad;
+                    el.style.webkitBackgroundClip = 'text';
+                    el.style.backgroundClip = 'text';
+                    el.style.webkitTextFillColor = 'transparent';
+                    el.style.color = 'transparent';
+                });
             });
-        });
+        }
 
         previewRafId = requestAnimationFrame(loop);
     })();
