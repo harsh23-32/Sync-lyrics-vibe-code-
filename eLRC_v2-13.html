@@ -1,0 +1,1589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>eLRC v2.13</title>
+<script src="https://www.youtube.com/iframe_api"></script>
+<style>
+:root {
+    --bg: #000;
+    --surface: #111;
+    --border: #2a2a2a;
+    --accent: #fff;
+    --muted: #555;
+    --green: #00ff88;
+    --split: #ffaa00;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: 'Courier New', monospace;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; margin: 0; padding: 0; }
+body {
+    background: var(--bg); color: #eee; font-family: var(--font);
+    height: 100dvh; width: 100vw; overflow: hidden; display: flex; flex-direction: column;
+}
+
+/* TOPBAR */
+.topbar {
+    height: 56px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.time-disp { font-family: var(--mono); font-size: 1rem; font-weight: 700; color: #fff; letter-spacing: 1px; }
+
+/* BUTTONS */
+.btn {
+    background: var(--surface); border: 1px solid var(--border); color: #fff;
+    padding: 10px 16px; border-radius: 50px; font-size: 0.8rem; font-weight: 700;
+    cursor: pointer; font-family: var(--font); white-space: nowrap;
+}
+.btn:active { background: #222; }
+.btn.accent { background: #fff; color: #000; border-color: #fff; }
+.btn.accent:active { background: #ddd; }
+
+/* DRAWER */
+.drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 200; display: none; }
+.drawer-overlay.open { display: block; }
+.drawer {
+    position: fixed; top: 0; left: 0; bottom: 0; width: min(92vw, 380px);
+    background: #0a0a0a; border-right: 1px solid var(--border); z-index: 300;
+    transform: translateX(-100%); transition: transform 0.3s ease;
+    display: flex; flex-direction: column; overflow: hidden;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+    padding: 18px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.drawer-head h2 { font-size: 1rem; font-weight: 900; }
+.close-btn {
+    width: 32px; height: 32px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 50%; color: #fff; font-size: 1.2rem;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.drawer-body {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    display: flex; flex-direction: column; gap: 18px;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+}
+.field-label {
+    font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted); margin-bottom: 6px;
+}
+.url-row { display: flex; gap: 8px; }
+.url-row input {
+    flex: 1; background: var(--surface); border: 1px solid var(--border);
+    color: #fff; padding: 11px 14px; border-radius: 12px; font-size: 0.85rem; font-family: var(--font);
+}
+#status-pill {
+    font-size: 0.75rem; padding: 6px 12px; border-radius: 50px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); text-align: center; margin-top: 8px;
+}
+
+/* YT PLAYER */
+.yt-wrap { margin: 0 -20px; }
+.yt-box {
+    background: #000; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    overflow: hidden; width: 100%; aspect-ratio: 16 / 9; position: relative;
+}
+.yt-box iframe, #yt-player {
+    position: absolute; top: 0; left: 0;
+    width: 100% !important; height: 100% !important;
+}
+
+textarea {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    color: #fff; padding: 12px 14px; border-radius: 12px;
+    font-size: 0.82rem; font-family: var(--mono); resize: none; height: 130px; line-height: 1.5;
+}
+textarea::placeholder { color: var(--muted); }
+.mode-toggle { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 50px; padding: 3px; gap: 3px; }
+.mode-btn {
+    flex: 1; padding: 9px; border-radius: 50px; border: none;
+    background: transparent; color: var(--muted); font-size: 0.8rem; font-weight: 700;
+    cursor: pointer; font-family: var(--font); transition: 0.15s;
+}
+.mode-btn.active { background: #333; color: #fff; }
+.lrc-out-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+#lrc-out {
+    height: 90px; border: none; background: transparent; color: var(--green);
+    font-size: 0.72rem; padding: 10px 12px; width: 100%; resize: none; font-family: var(--mono);
+}
+.export-btns { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+.export-btns .btn { flex: 1; text-align: center; }
+
+/* LYRICS */
+.lyrics-area {
+    flex: 1; overflow-y: auto; padding: 50px 0 300px;
+    -webkit-overflow-scrolling: touch;
+}
+.lyric-line {
+    padding: 10px 24px; font-size: 1.4rem; font-weight: 700;
+    color: rgba(255,255,255,0.18); line-height: 1.6;
+    transform: scale(0.95); transform-origin: left center;
+    border-radius: 14px; margin: 2px 8px;
+    transition: color 0.2s, transform 0.2s;
+}
+.lyric-line.active { color: rgba(255,255,255,0.85); transform: scale(1); }
+.lyric-line.music-line {
+    font-size: 0.9rem; color: rgba(255,255,255,0.1);
+    font-style: italic; letter-spacing: 3px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding-right: 12px;
+}
+.lyric-line.music-line.active { color: rgba(255,255,255,0.35); }
+.music-delete {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(255,50,50,0.12); border: 1px solid rgba(255,50,50,0.25);
+    color: #ff4444; font-size: 0.85rem; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; touch-action: manipulation;
+}
+.music-delete:active { background: rgba(255,50,50,0.4); }
+
+/* WORD SPANS */
+.word-span {
+    display: inline; border-radius: 5px; padding: 1px 2px;
+    color: rgba(255,255,255,0.18);
+    cursor: pointer; position: relative;
+    -webkit-user-select: none; user-select: none;
+}
+.word-span.past { color: rgba(255,255,255,0.4); }
+.word-span.now  { color: #fff; background: rgba(255,255,255,0.14); padding: 2px 6px; border-radius: 6px; }
+
+/* SPLIT WORD STYLING */
+.word-span.split-marked {
+    border-bottom: 2px dashed var(--split);
+    color: var(--split);
+    padding-bottom: 0px;
+}
+.word-span.split-marked.now {
+    background: rgba(255,170,0,0.15);
+    color: var(--split);
+}
+/* Split progress dots shown in ctx bar */
+.split-dots { display: inline-flex; gap: 3px; align-items: center; margin-left: 4px; }
+.split-dot { width: 6px; height: 6px; border-radius: 50%; background: #444; flex-shrink: 0; }
+.split-dot.filled { background: var(--split); }
+
+/* CONTEXT BAR */
+.ctx-bar {
+    position: fixed; top: 62px; left: 50%; transform: translateX(-50%);
+    background: #111; border: 1px solid #2a2a2a; border-radius: 50px;
+    padding: 5px 16px; font-size: 0.78rem; font-weight: 700;
+    display: flex; align-items: center; gap: 8px; z-index: 40;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s; white-space: nowrap;
+}
+.ctx-bar.show { opacity: 1; }
+.ctx-past { color: #3a3a3a; }
+.ctx-now  { color: #fff; font-size: 0.9rem; }
+.ctx-now.split-active { color: var(--split); }
+.ctx-sep  { color: #2a2a2a; }
+.ctx-split-info { color: var(--split); font-size: 0.7rem; margin-left: 2px; }
+
+/* DOCK */
+.dock {
+    position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+    width: calc(100% - 20px); max-width: 520px;
+    background: #111; border: 1px solid #2a2a2a; border-radius: 32px;
+    padding: 12px; display: flex; flex-direction: column; gap: 10px;
+    z-index: 50; box-shadow: 0 8px 40px rgba(0,0,0,0.95);
+}
+.seek-row { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+input[type=range] { flex: 1; -webkit-appearance: none; background: #2a2a2a; height: 3px; border-radius: 2px; border: none; padding: 0; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #fff; border-radius: 50%; }
+.ctrl-row { display: flex; align-items: center; gap: 5px; }
+
+/* PLAY BUTTON */
+.play-btn {
+    width: 52px; height: 52px; border-radius: 50%;
+    background: #fff; color: #000; font-size: 1.2rem;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; border: none; cursor: pointer;
+    touch-action: manipulation; user-select: none; -webkit-user-select: none;
+    transition: transform 0.08s, background 0.08s;
+}
+.play-btn.playing { box-shadow: 0 0 0 3px rgba(255,255,255,0.15); }
+.play-btn.pressed { background: #bbb; transform: scale(0.92); }
+
+/* SEEK BUTTONS */
+.seek-btn {
+    width: 40px; height: 52px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 13px; color: #fff; font-size: 0.72rem; font-weight: 700;
+    cursor: pointer; font-family: var(--font); flex-shrink: 0; touch-action: manipulation;
+}
+.seek-btn:active { background: #222; }
+
+/* TAP BUTTON */
+.tap-btn {
+    flex: 2; height: 52px; background: #1c1c1c; border: 1.5px solid #333;
+    border-radius: 26px; color: #fff; font-size: 0.95rem; font-weight: 800;
+    letter-spacing: 0.5px; cursor: pointer; font-family: var(--font);
+    touch-action: manipulation; user-select: none; -webkit-user-select: none;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.tap-btn:active { background: #fff; color: #000; border-color: #fff; }
+.tap-btn.split-mode { background: #1a1200; border-color: #3a2800; color: var(--split); }
+.tap-btn.split-mode:active { background: var(--split); color: #000; border-color: var(--split); }
+
+/* MUSIC BUTTON — becomes stamp button in split mode */
+.music-btn {
+    flex: 1; height: 52px; background: #081208; border: 1.5px solid #183018;
+    border-radius: 26px; color: #00bb55; font-size: 0.68rem; font-weight: 800;
+    cursor: pointer; font-family: var(--font);
+    touch-action: manipulation; user-select: none; -webkit-user-select: none;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.music-btn:active { background: #00bb55; color: #000; }
+.music-btn.split-stamp { background: #1a1000; border-color: #3a2200; color: var(--split); }
+.music-btn.split-stamp:active { background: var(--split); color: #000; }
+
+/* SPEED BUTTON */
+.speed-btn {
+    height: 52px; padding: 0 10px;
+    background: #0d0d1a; border: 1.5px solid #1a1a3a;
+    border-radius: 26px; color: #7777ff; font-size: 0.75rem; font-weight: 800;
+    cursor: pointer; font-family: var(--mono);
+    touch-action: manipulation; user-select: none; -webkit-user-select: none;
+    white-space: nowrap; flex-shrink: 0;
+}
+.speed-btn:active { background: #7777ff; color: #000; }
+
+/* ── REVIEW POPUP ── */
+.popup-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 500;
+    display: flex; align-items: flex-end; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.25s;
+}
+.popup-overlay.open { opacity: 1; pointer-events: all; }
+.popup-sheet {
+    width: 100%; max-width: 560px;
+    background: #0e0e0e; border: 1px solid #2a2a2a;
+    border-radius: 28px 28px 0 0;
+    max-height: 80dvh; display: flex; flex-direction: column;
+    transform: translateY(40px); transition: transform 0.25s;
+    padding-bottom: env(safe-area-inset-bottom);
+}
+.popup-overlay.open .popup-sheet { transform: translateY(0); }
+.popup-head {
+    padding: 18px 20px 14px; border-bottom: 1px solid #1e1e1e;
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.popup-head h3 { font-size: 0.95rem; font-weight: 900; }
+.popup-body { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 20px; }
+.split-review-item {
+    background: #141414; border: 1px solid #2a2a2a; border-radius: 16px;
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.sri-top { display: flex; align-items: center; justify-content: space-between; }
+.sri-word { font-size: 1.1rem; font-weight: 800; color: var(--split); }
+.sri-line-ref { font-size: 0.7rem; color: #444; font-family: var(--mono); }
+.sri-parts { display: flex; flex-direction: column; gap: 8px; }
+.sri-part {
+    display: flex; align-items: center; gap: 10px;
+    background: #0a0a0a; border: 1px solid #222; border-radius: 10px;
+    padding: 8px 12px;
+}
+.sri-part-label { font-size: 0.65rem; color: #555; font-weight: 800; text-transform: uppercase; width: 40px; flex-shrink: 0; }
+.sri-part-text {
+    flex: 1; background: transparent; border: none; color: #fff;
+    font-size: 0.9rem; font-weight: 700; font-family: var(--font);
+    min-width: 0;
+}
+.sri-part-text:focus { outline: 1px solid var(--split); border-radius: 4px; }
+.sri-part-time { font-size: 0.7rem; font-family: var(--mono); color: #555; flex-shrink: 0; }
+.sri-nudge-row { display: flex; gap: 5px; align-items: center; }
+.nudge-btn {
+    width: 32px; height: 28px; background: #1a1a1a; border: 1px solid #333;
+    border-radius: 8px; color: #aaa; font-size: 0.7rem; font-weight: 800;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.nudge-btn:active { background: #333; }
+.sri-seek-btn {
+    padding: 5px 12px; background: #0d0d1a; border: 1px solid #1a1a3a;
+    border-radius: 20px; color: #7777ff; font-size: 0.72rem; font-weight: 800;
+    cursor: pointer;
+}
+.sri-seek-btn:active { background: #7777ff; color: #000; }
+.sri-add-part-btn {
+    padding: 6px 14px; background: transparent; border: 1px dashed #2a2a2a;
+    border-radius: 20px; color: #444; font-size: 0.75rem; font-weight: 700;
+    cursor: pointer; align-self: flex-start;
+}
+.sri-add-part-btn:active { border-color: var(--split); color: var(--split); }
+.sri-remove-btn {
+    padding: 5px 12px; background: transparent; border: 1px solid #2a2a2a;
+    border-radius: 20px; color: #555; font-size: 0.72rem; font-weight: 700;
+    cursor: pointer;
+}
+.sri-remove-btn:active { border-color: #ff4444; color: #ff4444; }
+.popup-done-btn {
+    margin: 12px 20px 16px; padding: 14px;
+    background: #fff; color: #000; border: none; border-radius: 20px;
+    font-size: 0.9rem; font-weight: 900; cursor: pointer; flex-shrink: 0;
+}
+.popup-done-btn:active { background: #ddd; }
+
+.word-nudge-section { margin-top: 8px; }
+.word-nudge-section-title {
+    font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted); margin-bottom: 10px;
+}
+.word-nudge-item {
+    display: flex; align-items: center; gap: 10px;
+    background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 10px;
+    padding: 8px 12px; margin-bottom: 6px;
+}
+.wni-word { font-size: 0.9rem; font-weight: 800; color: #fff; min-width: 60px; flex-shrink: 0; }
+.wni-time { font-size: 0.7rem; font-family: var(--mono); color: #555; flex-shrink: 0; min-width: 70px; }
+.wni-nudge-row { display: flex; gap: 5px; margin-left: auto; }
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="drawer-overlay" id="overlay" onclick="closeDrawer()"></div>
+
+<div class="drawer" id="drawer">
+    <div class="drawer-head">
+        <h2>⚡ eLRC v2.5</h2>
+        <button class="close-btn" onclick="closeDrawer()">×</button>
+    </div>
+    <div class="drawer-body">
+        <div>
+            <div class="field-label">YouTube Link</div>
+            <div class="url-row">
+                <input type="text" id="yt-url" placeholder="https://youtu.be/..." autocomplete="off" autocorrect="off" spellcheck="false">
+                <button class="btn accent" onclick="loadVideo()">Load</button>
+            </div>
+            <div id="status-pill">Waiting for YouTube API…</div>
+        </div>
+        <div class="yt-wrap"><div class="yt-box"><div id="yt-player"></div></div></div>
+        <div>
+            <div class="field-label">Lyrics</div>
+            <textarea id="raw-input" placeholder="Paste lyrics here, one line per row…"></textarea>
+        </div>
+        <div>
+            <div class="field-label">Mode</div>
+            <div class="mode-toggle">
+                <button class="mode-btn active" id="btn-line" onclick="setMode('line')">Line by Line</button>
+                <button class="mode-btn" id="btn-word" onclick="setMode('word')">Word by Word</button>
+            </div>
+        </div>
+        <button class="btn accent" onclick="initLyrics()" style="width:100%;padding:13px;">▶ Start Tagging</button>
+        <div>
+            <div class="field-label">LRC Output</div>
+            <div class="lrc-out-box">
+                <textarea id="lrc-out" readonly placeholder="LRC will appear here…"></textarea>
+                <div class="export-btns">
+                    <button class="btn" onclick="copyLRC()">Copy</button>
+                    <button class="btn" onclick="downloadLRC()">Download</button>
+                    <button class="btn" onclick="openReview()" style="color:var(--split);border-color:#3a2800;" id="review-btn">✂ Review Splits</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+    <button class="btn" onclick="openDrawer()">☰ Menu</button>
+    <span class="time-disp" id="time-disp">00:00.00</span>
+    <span style="width:70px"></span>
+</div>
+
+<!-- CTX BAR -->
+<div class="ctx-bar" id="ctx-bar">
+    <span class="ctx-past" id="ctx-past"></span>
+    <span class="ctx-sep"  id="ctx-sep-l"></span>
+    <span class="ctx-now"  id="ctx-now"></span>
+    <span class="ctx-sep"  id="ctx-sep-r"></span>
+    <span class="ctx-past" id="ctx-next"></span>
+    <span class="ctx-split-info" id="ctx-split-info"></span>
+</div>
+
+<!-- LYRICS -->
+<div class="lyrics-area" id="lyrics-area">
+    <div style="text-align:center; padding:80px 30px; color:#1e1e1e;">
+        <div style="font-size:2rem; margin-bottom:10px;">🎵</div>
+        <div style="font-weight:700;">Open Menu to begin</div>
+    </div>
+</div>
+
+<!-- DOCK -->
+<div class="dock">
+    <div class="seek-row">
+        <span id="curr-t">0:00</span>
+        <input type="range" id="seek-bar" value="0" step="0.1" oninput="seekBar()">
+        <span id="dur-t">0:00</span>
+    </div>
+    <div class="ctrl-row">
+        <button class="play-btn" id="play-btn"
+            ontouchstart="playPress(event)" ontouchend="playRelease(event)"
+            onmousedown="playPress(event)" onmouseup="playRelease(event)">▶</button>
+        <button class="seek-btn" onclick="seekBy(-5)">−5s</button>
+        <button class="tap-btn" id="tap-btn"
+            ontouchstart="tapPress(event)" ontouchend="tapRelease(event)"
+            onmousedown="tapPress(event)" onmouseup="tapRelease(event)">TAP</button>
+        <button class="music-btn" id="music-btn"
+            ontouchstart="musicPress(event)" ontouchend="musicRelease(event)"
+            onmousedown="musicPress(event)" onmouseup="musicRelease(event)">♪ MUSIC</button>
+        <button class="seek-btn" onclick="seekBy(5)">+5s</button>
+        <button class="speed-btn" id="speed-btn" onclick="cycleSpeed()">1.0×</button>
+    </div>
+</div>
+
+<!-- REVIEW POPUP -->
+<div class="popup-overlay" id="review-overlay">
+    <div class="popup-sheet">
+        <div class="popup-head">
+            <h3>✂ Split Word Review</h3>
+            <button class="close-btn" onclick="closeReview()">×</button>
+        </div>
+        <div class="popup-body" id="review-body"></div>
+        <button class="popup-done-btn" onclick="applyReviewAndClose()">Done — Apply Changes</button>
+    </div>
+</div>
+
+<script>
+// ── YouTube ────────────────────────────────────────────────
+var player = null, ytReady = false, pendingId = null, rafId = null;
+var isPlaying = false;
+
+window.onYouTubeIframeAPIReady = function() {
+    ytReady = true;
+    setStatus('✅ Ready — paste a link and tap Load', '#00cc66');
+    if (pendingId) { createPlayer(pendingId); pendingId = null; }
+};
+
+function setStatus(msg, color) {
+    var el = document.getElementById('status-pill');
+    el.textContent = msg; el.style.color = color || '#555';
+}
+
+function extractId(url) {
+    url = url.trim();
+    try {
+        var u = new URL(url);
+        if (u.searchParams.get('v')) return u.searchParams.get('v');
+        if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
+        if (u.hostname === 'music.youtube.com') return u.searchParams.get('v');
+    } catch(e) {}
+    if (/^[a-zA-Z0-9_-]{11}$/.test(url)) return url;
+    return null;
+}
+
+function loadVideo() {
+    var url = document.getElementById('yt-url').value.trim();
+    if (!url) { setStatus('⚠️ Paste a YouTube link first', '#f80'); return; }
+    var id = extractId(url);
+    if (!id) { setStatus('❌ Cannot read video ID', '#f44'); return; }
+    if (!ytReady) { pendingId = id; setStatus('⏳ API loading… will auto-load shortly', '#f80'); return; }
+    createPlayer(id);
+}
+
+function createPlayer(id) {
+    setStatus('⏳ Loading video…', '#f80');
+    cancelAnimationFrame(rafId);
+    if (player) { try { player.destroy(); } catch(e) {} player = null; }
+    document.querySelector('.yt-box').innerHTML = '<div id="yt-player"></div>';
+    player = new YT.Player('yt-player', {
+        videoId: id, width: '100%', height: '100%',
+        playerVars: { playsinline: 1, controls: 1, rel: 0, modestbranding: 1 },
+        events: {
+            onReady: function() {
+                setStatus('✅ Video loaded — press ▶ to play', '#00cc66');
+                startLoop();
+            },
+            onStateChange: function(e) {
+                isPlaying = (e.data === 1);
+                updatePlayBtn();
+            },
+            onError: function(e) {
+                var m = {2:'Bad ID',5:'HTML5 error',100:'Not found',101:'Embed disabled',150:'Embed disabled'};
+                setStatus('❌ ' + (m[e.data] || 'Error ' + e.data), '#f44');
+            }
+        }
+    });
+}
+
+function startLoop() {
+    cancelAnimationFrame(rafId);
+    (function loop() {
+        if (player && typeof player.getCurrentTime === 'function') {
+            try {
+                var t = player.getCurrentTime(), d = player.getDuration() || 0;
+                document.getElementById('time-disp').textContent = fmtDisp(t);
+                document.getElementById('curr-t').textContent = fmtShort(t);
+                document.getElementById('dur-t').textContent  = fmtShort(d);
+                var bar = document.getElementById('seek-bar');
+                if (document.activeElement !== bar) { bar.max = d || 100; bar.value = t; }
+
+            } catch(e) {}
+        }
+        rafId = requestAnimationFrame(loop);
+    })();
+}
+
+function now() {
+    if (!player || typeof player.getCurrentTime !== 'function') return 0;
+    try { return player.getCurrentTime(); } catch(e) { return 0; }
+}
+
+// ── Play button ────────────────────────────────────────────
+function playPress(e) { e.preventDefault(); document.getElementById('play-btn').classList.add('pressed'); togglePlay(); }
+function playRelease(e) { e.preventDefault(); document.getElementById('play-btn').classList.remove('pressed'); }
+function updatePlayBtn() {
+    var btn = document.getElementById('play-btn');
+    btn.textContent = isPlaying ? '⏸' : '▶';
+    btn.classList.toggle('playing', isPlaying);
+}
+function togglePlay() {
+    if (!player || typeof player.getPlayerState !== 'function') return;
+    try {
+        if (player.getPlayerState() === 1) { player.pauseVideo(); isPlaying = false; }
+        else { player.playVideo(); isPlaying = true; }
+        updatePlayBtn();
+    } catch(e) {}
+}
+
+// ── Speed ──────────────────────────────────────────────────
+var speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0], speedIdx = 3;
+var speedPopupOpen = false;
+
+function cycleSpeed() {
+    // Toggle popup
+    if (speedPopupOpen) { closeSpeedPopup(); return; }
+    openSpeedPopup();
+}
+
+function openSpeedPopup() {
+    var existing = document.getElementById('speed-popup');
+    if (existing) existing.remove();
+
+    var popup = document.createElement('div');
+    popup.id = 'speed-popup';
+    popup.style.cssText = 'position:fixed;bottom:calc(90px + env(safe-area-inset-bottom));left:10px;right:10px;background:#111;border:1px solid #2a2a2a;border-radius:20px;padding:8px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;z-index:200;box-shadow:0 8px 40px rgba(0,0,0,0.95);';
+
+    speeds.forEach(function(s, i) {
+        var btn = document.createElement('button');
+        btn.style.cssText = 'padding:8px 12px;border-radius:12px;border:1.5px solid ' + (i === speedIdx ? '#7777ff' : '#2a2a2a') + ';background:' + (i === speedIdx ? '#0d0d1a' : 'transparent') + ';color:' + (i === speedIdx ? '#7777ff' : '#888') + ';font-size:0.75rem;font-weight:800;cursor:pointer;font-family:var(--mono);white-space:nowrap;';
+        btn.textContent = s + '×';
+        btn.onclick = function() { setSpeed(i); closeSpeedPopup(); };
+        popup.appendChild(btn);
+    });
+
+    document.body.appendChild(popup);
+    speedPopupOpen = true;
+
+    // Close on outside tap
+    setTimeout(function() {
+        document.addEventListener('click', closeSpeedOnOutside);
+        document.addEventListener('touchstart', closeSpeedOnOutside);
+    }, 50);
+}
+
+function closeSpeedOnOutside(e) {
+    var popup = document.getElementById('speed-popup');
+    var btn   = document.getElementById('speed-btn');
+    if (popup && !popup.contains(e.target) && e.target !== btn) {
+        closeSpeedPopup();
+    }
+}
+
+function closeSpeedPopup() {
+    var popup = document.getElementById('speed-popup');
+    if (popup) popup.remove();
+    speedPopupOpen = false;
+    document.removeEventListener('click', closeSpeedOnOutside);
+    document.removeEventListener('touchstart', closeSpeedOnOutside);
+}
+
+function setSpeed(idx) {
+    speedIdx = idx;
+    var s = speeds[speedIdx];
+    document.getElementById('speed-btn').textContent = s + '×';
+    if (player && typeof player.setPlaybackRate === 'function') {
+        try { player.setPlaybackRate(s); } catch(e) {}
+    }
+}
+
+// ── Auto-save ──────────────────────────────────────────────
+var SAVE_KEY = 'elrc_autosave';
+
+function saveState() {
+    try {
+        var raw = document.getElementById('raw-input');
+        var data = {
+            S: S,
+            splitState: splitState,
+            rawInput: raw ? raw.value : '',
+            savedAt: Date.now()
+        };
+        localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch(e) {}
+}
+
+function restoreState() {
+    try {
+        var saved = localStorage.getItem(SAVE_KEY);
+        if (!saved) return;
+        var data = JSON.parse(saved);
+        if (!data || !data.S || !data.S.lyrics || !data.S.lyrics.length) return;
+
+        // Restore raw input
+        var rawEl = document.getElementById('raw-input');
+        if (rawEl && data.rawInput) rawEl.value = data.rawInput;
+
+        // Restore state
+        S.mode = data.S.mode || 'line';
+        S.lyrics = data.S.lyrics;
+        S.li = data.S.li || 0;
+        S.wi = data.S.wi || 0;
+        S.lastTapped = data.S.lastTapped || null;
+        splitState = data.splitState || null;
+
+        // Update mode buttons
+        document.getElementById('btn-line').classList.toggle('active', S.mode === 'line');
+        document.getElementById('btn-word').classList.toggle('active', S.mode === 'word');
+
+        renderAll();
+        genLRC();
+
+        // Show a subtle restore notice
+        var pill = document.getElementById('status-pill');
+        if (pill) {
+            pill.textContent = '💾 Session restored';
+            pill.style.color = '#00cc66';
+            setTimeout(function() {
+                if (pill.textContent === '💾 Session restored') {
+                    pill.textContent = 'Waiting for YouTube API…';
+                    pill.style.color = '#555';
+                }
+            }, 3000);
+        }
+    } catch(e) {}
+}
+
+
+
+// Split state: which word is currently split-marked and how many taps remain
+// splitState = null | { li, wi, totalParts, tappedSoFar }
+var splitState = null;
+
+function setMode(m) {
+    S.mode = m;
+    document.getElementById('btn-line').classList.toggle('active', m === 'line');
+    document.getElementById('btn-word').classList.toggle('active', m === 'word');
+    updateCtx();
+}
+
+// ── Init ───────────────────────────────────────────────────
+function initLyrics() {
+    var raw = document.getElementById('raw-input').value.trim();
+    if (!raw) { alert('Paste lyrics first!'); return; }
+    S.lyrics = []; S.li = 0; S.wi = 0; S.lastTapped = null; _prevNowId = null;
+    splitState = null;
+    raw.split('\n').forEach(function(l) {
+        var t = l.trim(); if (!t) return;
+        S.lyrics.push({
+            type: 'lyric', text: t, time: null,
+            // Each word: { t: text, s: startTime, e: endTime, splits: [] }
+            // splits: array of {text, s} for syllable parts (populated in review)
+            words: t.split(/\s+/).map(function(w) { return { t: w, s: null, e: null, splits: [] }; })
+        });
+    });
+    renderAll();
+    closeDrawer();
+    saveState();
+}
+
+// ── Render ─────────────────────────────────────────────────
+var _prevNowId = null;
+
+function renderAll() {
+    var area = document.getElementById('lyrics-area');
+    area.innerHTML = ''; _prevNowId = null;
+
+    S.lyrics.forEach(function(line, i) {
+        var div = document.createElement('div');
+        div.id = 'L' + i;
+
+        if (line.type === 'music') {
+            div.className = 'lyric-line music-line' + (i === S.li ? ' active' : '');
+            var txt = document.createElement('span');
+            txt.textContent = '♪  ♪  ♪';
+            div.appendChild(txt);
+            var del = document.createElement('button');
+            del.className = 'music-delete'; del.textContent = '✕';
+            del.addEventListener('click', (function(idx) {
+                return function(e) { e.stopPropagation(); deleteMusicLine(idx); };
+            })(i));
+            div.appendChild(del);
+        } else {
+            div.className = 'lyric-line' + (i === S.li ? ' active' : '');
+            if (S.mode === 'word') {
+                buildWordSpans(div, line, i);
+            } else {
+                div.textContent = line.text;
+            }
+        }
+
+        div.addEventListener('click', (function(idx) {
+            return function() { jumpTo(idx, 0); };
+        })(i));
+        area.appendChild(div);
+    });
+
+    if (S.mode === 'word' && S.li < S.lyrics.length && S.lyrics[S.li].type === 'lyric') {
+        setNow(S.li, S.wi);
+    }
+    scrollActive(); updateCtx();
+}
+
+function buildWordSpans(container, line, li) {
+    line.words.forEach(function(w, wi) {
+        var sp = document.createElement('span');
+        sp.id = 'W' + li + '_' + wi;
+        var cls = 'word-span';
+        if (w.s !== null) cls += ' past';
+        if (w.splits && w.splits.length > 0) cls += ' split-marked';
+        sp.className = cls;
+        sp.textContent = w.t;
+
+        // Long press to mark/unmark split
+        var longTimer = null;
+        var longFired = false;
+
+        function startLong(e) {
+            longFired = false;
+            longTimer = setTimeout(function() {
+                longFired = true;
+                toggleSplitMark(li, wi);
+            }, 500);
+        }
+        function cancelLong() {
+            clearTimeout(longTimer);
+        }
+
+        sp.addEventListener('touchstart', function(e) { startLong(e); }, { passive: true });
+        sp.addEventListener('touchend',   function(e) { cancelLong(); });
+        sp.addEventListener('touchmove',  function(e) { cancelLong(); });
+        sp.addEventListener('mousedown',  function(e) { startLong(e); });
+        sp.addEventListener('mouseup',    function(e) { cancelLong(); });
+
+        sp.addEventListener('click', (function(l, w) {
+            return function(e) {
+                e.stopPropagation();
+                if (!longFired) jumpTo(l, w);
+            };
+        })(li, wi));
+
+        container.appendChild(sp);
+        if (wi < line.words.length - 1) container.appendChild(document.createTextNode(' '));
+    });
+}
+
+// ── Split marking ──────────────────────────────────────────
+function toggleSplitMark(li, wi) {
+    var word = S.lyrics[li].words[wi];
+    // If already marked, clear it
+    if (word.splits && word.splits.length > 0) {
+        word.splits = [];
+        var sp = document.getElementById('W' + li + '_' + wi);
+        if (sp) sp.classList.remove('split-marked');
+        // If this was the active splitState, cancel it
+        if (splitState && splitState.li === li && splitState.wi === wi) {
+            splitState = null;
+            updateDockForSplit(false);
+        }
+        updateCtx();
+        return;
+    }
+    // Mark as split — ask how many parts via inline prompt
+    // Simple: default 2 parts, user can add more in review
+    // We'll start with 2 parts and stamp them via music btn
+    word.splits = [{ text: word.t, s: null }, { text: '', s: null }];
+    var sp = document.getElementById('W' + li + '_' + wi);
+    if (sp) sp.classList.add('split-marked');
+
+    // If this is the current word being tapped, activate split mode
+    if (li === S.li && wi === S.wi) {
+        activateSplitState(li, wi);
+    }
+    updateCtx();
+    // Haptic if available
+    if (navigator.vibrate) navigator.vibrate(30);
+}
+
+function activateSplitState(li, wi) {
+    var word = S.lyrics[li].words[wi];
+    var splits = word.splits || [];
+    // Resume from wherever we left off (count how many parts already have a timestamp)
+    var resumeIdx = 0;
+    for (var i = 0; i < splits.length; i++) {
+        if (splits[i].s !== null) resumeIdx = i + 1;
+        else break;
+    }
+    // Don't cap resumeIdx at splits.length-1 — if all parts are stamped,
+    // resumeIdx == splits.length is correct (next STAMP will add a new part)
+    if (resumeIdx < 0) resumeIdx = 0;
+    splitState = { li: li, wi: wi, partIdx: resumeIdx };
+    updateDockForSplit(true);
+    updateCtx();
+}
+
+function updateDockForSplit(active) {
+    var tapBtn   = document.getElementById('tap-btn');
+    var musicBtn = document.getElementById('music-btn');
+    if (active) {
+        tapBtn.classList.add('split-mode');
+        musicBtn.classList.add('split-stamp');
+        musicBtn.textContent = '✂ STAMP';
+        musicBtn.disabled = false;
+        musicBtn.style.opacity = '';
+    } else {
+        tapBtn.classList.remove('split-mode');
+        musicBtn.classList.remove('split-stamp');
+        musicBtn.textContent = '♪ MUSIC';
+
+    }
+}
+
+// ── Word highlight tracker ─────────────────────────────────
+function setNow(li, wi) {
+    // Clear ALL 'now' spans in the whole lyrics area to prevent double-highlight
+    document.querySelectorAll('.word-span.now').forEach(function(el) {
+        el.classList.remove('now');
+        // Re-check if it should be past based on data
+        var id = el.id; // Wli_wi format
+        if (id) {
+            var parts = id.slice(1).split('_');
+            var pli = parseInt(parts[0]), pwi = parseInt(parts[1]);
+            if (S.lyrics[pli] && S.lyrics[pli].words[pwi] && S.lyrics[pli].words[pwi].s !== null) {
+                el.classList.add('past');
+            }
+        }
+    });
+    _prevNowId = null;
+
+    var newId = 'W' + li + '_' + wi;
+    var el = document.getElementById(newId);
+    if (el) { el.classList.remove('past'); el.classList.add('now'); _prevNowId = newId; }
+}
+
+function markPast(li, wi) {
+    var el = document.getElementById('W' + li + '_' + wi);
+    if (el) { el.classList.remove('now'); el.classList.add('past'); }
+}
+
+// ── TAP button press/release (long press detection) ────────
+var tapLongTimer = null;
+var tapLongFired = false;
+
+function tapPress(e) {
+    e.preventDefault();
+    tapLongFired = false;
+    tapLongTimer = setTimeout(function() {
+        tapLongFired = true;
+        // Long press on tap = mark current word as split
+        if (S.mode === 'word' && S.li < S.lyrics.length && S.lyrics[S.li].type === 'lyric') {
+            toggleSplitMark(S.li, S.wi);
+        }
+    }, 500);
+}
+
+function tapRelease(e) {
+    e.preventDefault();
+    clearTimeout(tapLongTimer);
+    if (!tapLongFired) handleTap();
+}
+
+// ── TAP ────────────────────────────────────────────────────
+function handleTap() {
+    if (!S.lyrics.length || S.li >= S.lyrics.length) return;
+    var t    = now();
+    var line = S.lyrics[S.li];
+
+    // LINE MODE
+    if (S.mode === 'line' || line.type === 'music') {
+        line.time = t; moveToNextLine(); genLRC(); return;
+    }
+
+    // WORD MODE — split mode active: TAP = advance to next word (done with this split word)
+    if (splitState && splitState.li === S.li && splitState.wi === S.wi) {
+        // Close the split: stamp end time for this word
+        var sw = S.lyrics[S.li].words[S.wi];
+        sw.e = t;
+        // If any parts don't have a text yet, assign remainder of word
+        autofillSplitTexts(sw);
+        splitState = null;
+        updateDockForSplit(false);
+        markPast(S.li, S.wi);
+        S.lastTapped = null;
+        moveToNextLine_word();
+        genLRC(); updateCtx(); return;
+    }
+
+    // WORD MODE — normal
+    // Close previous word end time
+    if (S.lastTapped !== null) {
+        S.lyrics[S.lastTapped.li].words[S.lastTapped.wi].e = t;
+        S.lastTapped = null;
+    }
+
+    var word = line.words[S.wi];
+    word.s = t;
+    if (S.wi === 0) line.time = t;
+    S.lastTapped = { li: S.li, wi: S.wi };
+    markPast(S.li, S.wi);
+
+    if (S.wi < line.words.length - 1) {
+        S.wi++;
+        setNow(S.li, S.wi);
+        // If next word is split-marked, activate split state
+        if (S.lyrics[S.li].words[S.wi].splits && S.lyrics[S.li].words[S.wi].splits.length > 0) {
+            activateSplitState(S.li, S.wi);
+        }
+    } else {
+        moveToNextLine();
+    }
+
+    updateCtx(); genLRC();
+}
+
+function moveToNextLine_word() {
+    var line = S.lyrics[S.li];
+    // If there are more words in this line, go to next word
+    if (line && line.type === 'lyric' && S.wi < line.words.length - 1) {
+        S.wi++;
+        setNow(S.li, S.wi);
+        // If next word is split-marked, activate split state
+        if (line.words[S.wi].splits && line.words[S.wi].splits.length > 0) {
+            activateSplitState(S.li, S.wi);
+        }
+        updateCtx();
+    } else {
+        // Last word of line — go to next line
+        moveToNextLine();
+    }
+}
+
+function autofillSplitTexts(word) {
+    // If splits have empty text, try to split the word text evenly
+    var parts = word.splits;
+    var filled = parts.filter(function(p) { return p.text && p.text !== word.t; });
+    if (filled.length === 0) {
+        // Rough even split of the word text by number of parts
+        var chars = word.t;
+        var n = parts.length;
+        var chunk = Math.ceil(chars.length / n);
+        parts.forEach(function(p, i) {
+            p.text = chars.slice(i * chunk, (i+1) * chunk);
+        });
+    }
+}
+
+function moveToNextLine() {
+    var old = document.getElementById('L' + S.li);
+    if (old) old.classList.remove('active');
+    S.li++; S.wi = 0;
+    if (S.li < S.lyrics.length) {
+        var nel = document.getElementById('L' + S.li);
+        if (nel) nel.classList.add('active');
+        if (S.mode === 'word' && S.lyrics[S.li].type === 'lyric') {
+            setNow(S.li, 0);
+            // Check if first word of next line is split-marked
+            if (S.lyrics[S.li].words[0].splits && S.lyrics[S.li].words[0].splits.length > 0) {
+                activateSplitState(S.li, 0);
+            }
+        }
+        scrollActive();
+    }
+}
+
+
+var musicLongTimer = null;
+var musicLongFired = false;
+
+function musicPress(e) {
+    e.preventDefault();
+    musicLongFired = false;
+    musicLongTimer = setTimeout(function() {
+        musicLongFired = true;
+    }, 500);
+}
+
+function musicRelease(e) {
+    e.preventDefault();
+    clearTimeout(musicLongTimer);
+    if (!musicLongFired) handleMusic();
+}
+
+// ── MUSIC / SPLIT-STAMP ────────────────────────────────────
+function handleMusic() {
+    // If in split mode, this button = stamp next part
+    if (splitState && splitState.li === S.li && splitState.wi === S.wi) {
+        handleSplitStamp(); return;
+    }
+
+    var t = now();
+    // FIX: close last tapped word's end time before inserting music line
+    if (S.mode === 'word' && S.lastTapped !== null) {
+        S.lyrics[S.lastTapped.li].words[S.lastTapped.wi].e = t;
+        S.lastTapped = null;
+    }
+    S.lyrics.splice(S.li, 0, { type: 'music', text: '', time: t, words: [] });
+    S.li++; _prevNowId = null;
+    renderAll(); genLRC();
+}
+
+function deleteMusicLine(i) {
+    S.lyrics.splice(i, 1);
+    if (S.li > i) S.li--;
+    if (S.li >= S.lyrics.length) S.li = Math.max(0, S.lyrics.length - 1);
+    _prevNowId = null;
+    renderAll(); genLRC();
+}
+
+function handleSplitStamp() {
+    if (!splitState) return;
+    var t    = now();
+    var word = S.lyrics[splitState.li].words[splitState.wi];
+
+    // If partIdx is at or beyond current splits array length, add a new part
+    if (splitState.partIdx >= word.splits.length) {
+        word.splits.push({ text: '', s: null, e: null });
+    }
+
+    var part = word.splits[splitState.partIdx];
+    part.s = t;
+
+    // Set word start time on first part
+    if (splitState.partIdx === 0) {
+        word.s = t;
+        if (splitState.wi === 0) S.lyrics[splitState.li].time = t;
+    }
+
+    // Close end of previous part
+    if (splitState.partIdx > 0) {
+        word.splits[splitState.partIdx - 1].e = t;
+    }
+
+    splitState.partIdx++;
+
+    // Keep music btn showing ✂ STAMP always — TAP is the only way to advance
+    document.getElementById('music-btn').textContent = '✂ STAMP';
+    document.getElementById('music-btn').style.color = '';
+
+    updateCtx();
+    genLRC();
+}
+
+// ── Jump to exact line AND word ────────────────────────────
+function jumpTo(li, wi) {
+    // Clear every word span across all lines first
+    document.querySelectorAll('.word-span').forEach(function(el) {
+        el.classList.remove('now');
+    });
+    _prevNowId = null;
+
+    var prevLi = S.li;
+    S.li = li; S.wi = wi;
+    S.lastTapped = null;
+    splitState = null; updateDockForSplit(false);
+
+    // Clear timestamps for words AFTER wi in the target line (redo from next word)
+    // We do NOT reset the word at wi itself — user may just want to re-enter split mode to review/continue
+    if (S.mode === 'word' && S.lyrics[li] && S.lyrics[li].type === 'lyric') {
+        S.lyrics[li].words.forEach(function(w, i) {
+            if (i > wi) {
+                w.s = null; w.e = null;
+                if (w.splits) w.splits.forEach(function(p) { p.s = null; p.e = null; });
+            }
+        });
+        // Only clear line time if jumping to word 0
+        if (wi === 0) S.lyrics[li].time = null;
+    }
+
+    // Update line active classes
+    document.querySelectorAll('.lyric-line').forEach(function(el, i) {
+        el.classList.toggle('active', i === S.li);
+    });
+
+    // Re-apply past/now to target line's words
+    if (S.mode === 'word' && S.lyrics[li] && S.lyrics[li].type === 'lyric') {
+        S.lyrics[li].words.forEach(function(w, i) {
+            var sp = document.getElementById('W' + li + '_' + i);
+            if (!sp) return;
+            sp.classList.remove('now', 'past');
+            if (i < wi && w.s !== null) sp.classList.add('past');
+            else if (i === wi) { sp.classList.add('now'); _prevNowId = 'W' + li + '_' + wi; }
+        });
+        if (S.lyrics[li].words[wi] && S.lyrics[li].words[wi].splits && S.lyrics[li].words[wi].splits.length > 0) {
+            activateSplitState(li, wi);
+        }
+    }
+
+    scrollActive(); updateCtx(); genLRC();
+}
+
+function scrollActive() {
+    var el = document.getElementById('L' + S.li);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ── Context bar ────────────────────────────────────────────
+function updateCtx() {
+    var bar = document.getElementById('ctx-bar');
+    if (S.mode !== 'word' || !S.lyrics.length || S.li >= S.lyrics.length) { bar.classList.remove('show'); return; }
+    var line = S.lyrics[S.li];
+    if (!line || line.type === 'music') { bar.classList.remove('show'); return; }
+    bar.classList.add('show');
+    var w = line.words;
+    var pastTxt = S.wi > 0 ? w[S.wi - 1].t : '';
+    var nowTxt  = w[S.wi] ? w[S.wi].t : '—';
+    var nextTxt = w[S.wi + 1] ? w[S.wi + 1].t : '';
+
+    document.getElementById('ctx-past').textContent  = pastTxt;
+    document.getElementById('ctx-sep-l').textContent = pastTxt ? '·' : '';
+    var nowEl = document.getElementById('ctx-now');
+    nowEl.textContent = nowTxt;
+    document.getElementById('ctx-sep-r').textContent = nextTxt ? '·' : '';
+    document.getElementById('ctx-next').textContent  = nextTxt;
+
+    // Split info
+    var infoEl = document.getElementById('ctx-split-info');
+    if (splitState && splitState.li === S.li && splitState.wi === S.wi) {
+        nowEl.className = 'ctx-now split-active';
+        var stamped = splitState.partIdx;
+        var dots = '';
+        for (var i = 0; i < Math.max(stamped, 1); i++) {
+            dots += i < stamped ? '●' : '○';
+        }
+        // Just show how many cuts made, no total fraction
+        infoEl.textContent = stamped === 0
+            ? ' ✂ tap STAMP to cut'
+            : ' ✂ ' + stamped + ' cut' + (stamped > 1 ? 's' : '') + ' · TAP to finish';
+    } else {
+        nowEl.className = 'ctx-now';
+        infoEl.textContent = '';
+    }
+
+}
+
+// ── LRC ────────────────────────────────────────────────────
+function genLRC() {
+    var out = [];
+    S.lyrics.forEach(function(line) {
+        if (line.time === null) return;
+        if (line.type === 'music') { out.push('[' + fmtLine(line.time) + ']'); return; }
+        if (S.mode === 'line') { out.push('[' + fmtLine(line.time) + '] ' + line.text); return; }
+
+        var parts = '';
+        line.words.forEach(function(w, wi) {
+            if (w.s === null) return;
+            // If word has splits with timestamps, expand them
+            if (w.splits && w.splits.length > 0 && w.splits[0].s !== null) {
+                w.splits.forEach(function(sp, si) {
+                    if (sp.s !== null) {
+                        parts += '<' + fmtWord(sp.s) + '>' + (sp.text || '');
+                    }
+                });
+                if (wi < line.words.length - 1) parts += ' ';
+            } else {
+                parts += '<' + fmtWord(w.s) + '>' + w.t;
+                if (wi < line.words.length - 1) parts += ' ';
+            }
+        });
+        var last = line.words[line.words.length - 1];
+        if (last && last.e !== null) parts += '<' + fmtWord(last.e) + '>';
+        if (parts) out.push('[' + fmtWord(line.time) + ']v1: ' + parts);
+    });
+    document.getElementById('lrc-out').value = out.join('\n');
+    saveState();
+}
+
+// ── REVIEW POPUP ───────────────────────────────────────────
+function openReview() {
+    var body = document.getElementById('review-body');
+    body.innerHTML = '';
+
+    // ── Section 1: Split words ──
+    var splitFound = false;
+    S.lyrics.forEach(function(line, li) {
+        if (line.type !== 'lyric') return;
+        line.words.forEach(function(word, wi) {
+            if (!word.splits || word.splits.length === 0) return;
+            splitFound = true;
+            body.appendChild(buildReviewItem(li, wi, word, line));
+        });
+    });
+
+    if (!splitFound) {
+        var noSplit = document.createElement('div');
+        noSplit.style.cssText = 'text-align:center;padding:24px 40px;color:#444;font-size:0.9rem;';
+        noSplit.innerHTML = 'No split words found.<br>Long press a word while tagging to mark it for splitting.';
+        body.appendChild(noSplit);
+    }
+
+    // ── Section 2: Word timestamp nudge ──
+    var taggedWords = [];
+    S.lyrics.forEach(function(line, li) {
+        if (line.type !== 'lyric') return;
+        line.words.forEach(function(word, wi) {
+            if (word.s !== null) taggedWords.push({ li: li, wi: wi, word: word });
+        });
+    });
+
+    if (taggedWords.length > 0) {
+        var section = document.createElement('div');
+        section.className = 'word-nudge-section';
+
+        var title = document.createElement('div');
+        title.className = 'word-nudge-section-title';
+        title.textContent = 'Word Timestamps';
+        section.appendChild(title);
+
+        taggedWords.forEach(function(entry) {
+            section.appendChild(buildWordNudgeRow(entry.li, entry.wi, entry.word));
+        });
+
+        body.appendChild(section);
+    }
+
+    document.getElementById('review-overlay').classList.add('open');
+}
+
+function buildReviewItem(li, wi, word, line) {
+    var item = document.createElement('div');
+    item.className = 'split-review-item';
+    item.dataset.li = li; item.dataset.wi = wi;
+
+    // Header
+    var top = document.createElement('div');
+    top.className = 'sri-top';
+    var wLabel = document.createElement('div');
+    wLabel.className = 'sri-word';
+    wLabel.textContent = '✂ ' + word.t;
+    var lineRef = document.createElement('div');
+    lineRef.className = 'sri-line-ref';
+    lineRef.textContent = 'Line ' + (li+1) + ', word ' + (wi+1);
+    top.appendChild(wLabel); top.appendChild(lineRef);
+    item.appendChild(top);
+
+    // Parts list
+    var partsDiv = document.createElement('div');
+    partsDiv.className = 'sri-parts';
+    partsDiv.id = 'sri-parts-' + li + '_' + wi;
+
+    // Ensure at least 2 parts
+    if (word.splits.length < 2) {
+        word.splits.push({ text: '', s: null, e: null });
+    }
+
+    word.splits.forEach(function(part, pi) {
+        partsDiv.appendChild(buildPartRow(li, wi, pi, part, word));
+    });
+    item.appendChild(partsDiv);
+    // Show/hide ✕ buttons correctly on initial render
+    setTimeout(function() { refreshPartDeleteBtns(li, wi); }, 0);
+
+    // Add part button
+    var addBtn = document.createElement('button');
+    addBtn.className = 'sri-add-part-btn';
+    addBtn.textContent = '+ Add part';
+    addBtn.onclick = (function(l, w) {
+        return function() {
+            S.lyrics[l].words[w].splits.push({ text: '', s: null, e: null });
+            var pd = document.getElementById('sri-parts-' + l + '_' + w);
+            var idx = S.lyrics[l].words[w].splits.length - 1;
+            pd.appendChild(buildPartRow(l, w, idx, S.lyrics[l].words[w].splits[idx], S.lyrics[l].words[w]));
+            refreshPartDeleteBtns(l, w);
+        };
+    })(li, wi);
+    item.appendChild(addBtn);
+
+    // Actions row
+    var actRow = document.createElement('div');
+    actRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
+
+    // Seek to word button
+    if (word.s !== null) {
+        var seekBtn = document.createElement('button');
+        seekBtn.className = 'sri-seek-btn';
+        seekBtn.textContent = '▶ Jump to ' + fmtShort(word.s);
+        seekBtn.onclick = (function(t) {
+            return function() {
+                if (player) try { player.seekTo(t - 0.5, true); } catch(e) {}
+            };
+        })(word.s);
+        actRow.appendChild(seekBtn);
+    }
+
+    // Remove split
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'sri-remove-btn';
+    removeBtn.textContent = 'Remove split';
+    removeBtn.onclick = (function(l, w, el) {
+        return function() {
+            S.lyrics[l].words[w].splits = [];
+            var sp = document.getElementById('W' + l + '_' + w);
+            if (sp) sp.classList.remove('split-marked');
+            el.remove();
+            genLRC();
+        };
+    })(li, wi, item);
+    actRow.appendChild(removeBtn);
+    item.appendChild(actRow);
+
+    return item;
+}
+
+// Show/hide ✕ buttons: only visible when there are >2 parts, and never on parts 0 and 1
+function refreshPartDeleteBtns(li, wi) {
+    var splits = S.lyrics[li].words[wi].splits;
+    var show = splits.length > 2;
+    splits.forEach(function(_, pi) {
+        var btn = document.getElementById('sri-del-' + li + '_' + wi + '_' + pi);
+        if (!btn) return;
+        // Never show ✕ on the first two parts
+        btn.style.display = (show && pi >= 2) ? 'flex' : 'none';
+    });
+}
+
+function buildPartRow(li, wi, pi, part, word) {
+    var row = document.createElement('div');
+    row.className = 'sri-part';
+    row.id = 'sri-part-' + li + '_' + wi + '_' + pi;
+
+    var label = document.createElement('div');
+    label.className = 'sri-part-label';
+    label.textContent = 'Part ' + (pi+1);
+
+    var textInput = document.createElement('input');
+    textInput.className = 'sri-part-text';
+    textInput.type = 'text';
+    textInput.value = part.text || '';
+    textInput.placeholder = 'syllable…';
+    // No autocapitalize on any part
+    textInput.setAttribute('autocapitalize', 'none');
+    textInput.setAttribute('autocomplete', 'off');
+    textInput.setAttribute('autocorrect', 'off');
+    textInput.oninput = (function(l, w, p) {
+        return function() {
+            var val = this.value;
+            // Parts after the first are always lowercase
+            if (p > 0) {
+                var pos = this.selectionStart;
+                val = val.toLowerCase();
+                this.value = val;
+                try { this.setSelectionRange(pos, pos); } catch(e) {}
+            }
+            S.lyrics[l].words[w].splits[p].text = val;
+            genLRC();
+        };
+    })(li, wi, pi);
+
+    var timeSpan = document.createElement('div');
+    timeSpan.className = 'sri-part-time';
+    timeSpan.id = 'sri-time-' + li + '_' + wi + '_' + pi;
+    timeSpan.textContent = part.s !== null ? fmtWord(part.s) : '—';
+
+    // Nudge row + delete button
+    var nudgeRow = document.createElement('div');
+    nudgeRow.className = 'sri-nudge-row';
+
+    [-0.1, +0.1].forEach(function(delta) {
+        var nb = document.createElement('button');
+        nb.className = 'nudge-btn';
+        nb.textContent = delta > 0 ? '+0.1' : '−0.1';
+        nb.onclick = (function(l, w, p, d) {
+            return function() {
+                if (S.lyrics[l].words[w].splits[p].s === null) return;
+                S.lyrics[l].words[w].splits[p].s = Math.max(0, S.lyrics[l].words[w].splits[p].s + d);
+                document.getElementById('sri-time-' + l + '_' + w + '_' + p).textContent = fmtWord(S.lyrics[l].words[w].splits[p].s);
+                genLRC();
+            };
+        })(li, wi, pi, delta);
+        nudgeRow.appendChild(nb);
+    });
+
+    // Per-part delete button (hidden on parts 0 and 1, shown when >2 parts)
+    var delPartBtn = document.createElement('button');
+    delPartBtn.className = 'nudge-btn';
+    delPartBtn.id = 'sri-del-' + li + '_' + wi + '_' + pi;
+    delPartBtn.title = 'Remove this part';
+    delPartBtn.style.cssText = 'color:#ff4444;border-color:#3a1010;margin-left:4px;width:28px;display:none;';
+    delPartBtn.textContent = '✕';
+    delPartBtn.onclick = (function(l, w, p) {
+        return function() {
+            var splits = S.lyrics[l].words[w].splits;
+            if (splits.length <= 2) return;
+            splits.splice(p, 1);
+            var pd = document.getElementById('sri-parts-' + l + '_' + w);
+            if (pd) {
+                pd.innerHTML = '';
+                S.lyrics[l].words[w].splits.forEach(function(sp, idx) {
+                    pd.appendChild(buildPartRow(l, w, idx, sp, S.lyrics[l].words[w]));
+                });
+            }
+            refreshPartDeleteBtns(l, w);
+            genLRC();
+        };
+    })(li, wi, pi);
+    nudgeRow.appendChild(delPartBtn);
+
+    row.appendChild(label);
+    row.appendChild(textInput);
+    row.appendChild(timeSpan);
+    row.appendChild(nudgeRow);
+    return row;
+}
+
+function applyReviewAndClose() {
+    genLRC();
+    // Resync splitState if it exists — review may have added/removed parts
+    if (splitState) {
+        var word = S.lyrics[splitState.li] && S.lyrics[splitState.li].words[splitState.wi];
+        if (word && word.splits && word.splits.length > 0) {
+            // Recompute partIdx from data
+            var resumeIdx = 0;
+            for (var i = 0; i < word.splits.length; i++) {
+                if (word.splits[i].s !== null) resumeIdx = i + 1;
+                else break;
+            }
+            if (resumeIdx >= word.splits.length) resumeIdx = word.splits.length; // allow == length (all stamped)
+            splitState.partIdx = resumeIdx;
+        }
+    }
+    closeReview();
+}
+
+function closeReview() {
+    document.getElementById('review-overlay').classList.remove('open');
+}
+
+function buildWordNudgeRow(li, wi, word) {
+    var row = document.createElement('div');
+    row.className = 'word-nudge-item';
+    row.id = 'wni-' + li + '_' + wi;
+
+    var wordEl = document.createElement('div');
+    wordEl.className = 'wni-word';
+    wordEl.textContent = word.t;
+
+    var timeEl = document.createElement('div');
+    timeEl.className = 'wni-time';
+    timeEl.id = 'wni-time-' + li + '_' + wi;
+    timeEl.textContent = fmtWord(word.s);
+
+    var nudgeRow = document.createElement('div');
+    nudgeRow.className = 'wni-nudge-row';
+
+    [-0.1, +0.1].forEach(function(delta) {
+        var nb = document.createElement('button');
+        nb.className = 'nudge-btn';
+        nb.textContent = delta > 0 ? '+0.1' : '−0.1';
+        nb.onclick = (function(l, w, d) {
+            return function() {
+                var wd = S.lyrics[l].words[w];
+                if (wd.s === null) return;
+                wd.s = Math.max(0, wd.s + d);
+                if (w === 0) S.lyrics[l].time = wd.s;
+                document.getElementById('wni-time-' + l + '_' + w).textContent = fmtWord(wd.s);
+                genLRC();
+            };
+        })(li, wi, delta);
+        nudgeRow.appendChild(nb);
+    });
+
+    // Seek to word
+    var seekBtn = document.createElement('button');
+    seekBtn.className = 'sri-seek-btn';
+    seekBtn.textContent = '▶';
+    seekBtn.style.marginLeft = '4px';
+    seekBtn.onclick = (function(t) {
+        return function() {
+            if (player) try { player.seekTo(Math.max(0, t - 0.5), true); } catch(e) {}
+        };
+    })(word.s);
+    nudgeRow.appendChild(seekBtn);
+
+    row.appendChild(wordEl);
+    row.appendChild(timeEl);
+    row.appendChild(nudgeRow);
+    return row;
+}
+
+// ── Export ─────────────────────────────────────────────────
+function copyLRC() {
+    genLRC();
+    var box = document.getElementById('lrc-out');
+    if (!box.value.trim()) { alert('Nothing to copy yet!'); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(box.value).then(function() { alert('✅ LRC copied!'); }).catch(function() { fbCopy(box); });
+    } else { fbCopy(box); }
+}
+function fbCopy(box) {
+    box.select(); box.setSelectionRange(0, 99999);
+    try { document.execCommand('copy'); alert('✅ LRC copied!'); } catch(e) { alert('Select and copy manually.'); }
+}
+function downloadLRC() {
+    genLRC();
+    var c = document.getElementById('lrc-out').value;
+    if (!c.trim()) { alert('Nothing to download!'); return; }
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([c], { type: 'application/octet-stream' }));
+    a.download = 'export.lrc'; document.body.appendChild(a); a.click();
+    setTimeout(function() { document.body.removeChild(a); }, 200);
+}
+
+// ── Controls ───────────────────────────────────────────────
+function seekBy(n) { if (player) try { player.seekTo(now() + n, true); } catch(e) {} }
+function seekBar()  { if (player) try { player.seekTo(+document.getElementById('seek-bar').value, true); } catch(e) {} }
+function openDrawer()  { document.getElementById('drawer').classList.add('open'); document.getElementById('overlay').classList.add('open'); }
+function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('overlay').classList.remove('open'); }
+
+// ── Time formats ───────────────────────────────────────────
+function fmtDisp(s) {
+    if (!s||isNaN(s)) return '00:00.00'; s=Math.max(0,s);
+    return p2(Math.floor(s/60))+':'+p2(Math.floor(s%60))+'.'+p2(Math.floor((s%1)*100));
+}
+function fmtLine(s) {
+    if (s===null||isNaN(s)) return '00:00.00'; s=Math.max(0,s);
+    return p2(Math.floor(s/60))+':'+p2(Math.floor(s%60))+'.'+p2(Math.floor((s%1)*100));
+}
+function fmtWord(s) {
+    if (s===null||isNaN(s)) return '00:00.000'; s=Math.max(0,s);
+    return p2(Math.floor(s/60))+':'+p2(Math.floor(s%60))+'.'+p3(Math.floor((s%1)*1000));
+}
+function fmtShort(s) {
+    if (!s||isNaN(s)) return '0:00';
+    return Math.floor(s/60)+':'+p2(Math.floor(s%60));
+}
+function p2(n) { return n.toString().padStart(2,'0'); }
+function p3(n) { return n.toString().padStart(3,'0'); }
+
+// ── Restore on load ────────────────────────────────────────
+restoreState();
+
+// ── Keyboard ───────────────────────────────────────────────
+document.addEventListener('keydown', function(e) {
+    if (e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT') return;
+    if (e.code==='Space')      { e.preventDefault(); togglePlay(); }
+    if (e.code==='Enter')      { e.preventDefault(); handleTap(); }
+    if (e.code==='ArrowRight') seekBy(5);
+    if (e.code==='ArrowLeft')  seekBy(-5);
+    if (e.code==='KeyM')       handleMusic();
+});
+
+// Close review overlay on background tap
+document.getElementById('review-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeReview();
+});
+</script>
+</body>
+</html>
