@@ -611,7 +611,7 @@ function setSpeed(idx) {
 }
 
 // ── Auto-save ──────────────────────────────────────────────
-var SAVE_KEY = 'elrc_autosave';
+var SAVE_KEY = 'elrc_autosave_v14';
 
 function saveState() {
     try {
@@ -1530,23 +1530,49 @@ function restoreState() {
         var saved = localStorage.getItem(SAVE_KEY);
         if (!saved) return;
         var data = JSON.parse(saved);
-        if (!data || !data.S || !data.S.lyrics || !data.S.lyrics.length) return;
+        if (!data || !data.S || !Array.isArray(data.S.lyrics) || !data.S.lyrics.length) return;
 
         var rawEl = document.getElementById('raw-input');
         if (rawEl && data.rawInput) rawEl.value = data.rawInput;
 
-        S.mode = data.S.mode || 'line';
+        S.mode = data.S.mode === 'word' ? 'word' : 'line';
         S.lyrics = data.S.lyrics;
-        S.li = data.S.li || 0;
-        S.wi = data.S.wi || 0;
+        S.li = typeof data.S.li === 'number' ? data.S.li : 0;
+        S.wi = typeof data.S.wi === 'number' ? data.S.wi : 0;
         S.lastTapped = data.S.lastTapped || null;
         splitState = data.splitState || null;
+
+        // Clamp indices to valid range
+        if (S.li >= S.lyrics.length) S.li = 0;
+        if (S.lyrics[S.li] && S.wi >= (S.lyrics[S.li].words || []).length) S.wi = 0;
 
         document.getElementById('btn-line').classList.toggle('active', S.mode === 'line');
         document.getElementById('btn-word').classList.toggle('active', S.mode === 'word');
 
         renderAll();
-        genLRC();
+
+        // Rebuild LRC output without triggering another save
+        var out = [];
+        S.lyrics.forEach(function(line) {
+            if (line.time === null) return;
+            if (line.type === 'music') { out.push('[' + fmtLine(line.time) + ']'); return; }
+            if (S.mode === 'line') { out.push('[' + fmtLine(line.time) + '] ' + line.text); return; }
+            var parts = '';
+            line.words.forEach(function(w, wi) {
+                if (w.s === null) return;
+                if (w.splits && w.splits.length > 0 && w.splits[0].s !== null) {
+                    w.splits.forEach(function(sp) { if (sp.s !== null) parts += '<' + fmtWord(sp.s) + '>' + (sp.text || ''); });
+                    if (wi < line.words.length - 1) parts += ' ';
+                } else {
+                    parts += '<' + fmtWord(w.s) + '>' + w.t;
+                    if (wi < line.words.length - 1) parts += ' ';
+                }
+            });
+            var last = line.words[line.words.length - 1];
+            if (last && last.e !== null) parts += '<' + fmtWord(last.e) + '>';
+            if (parts) out.push('[' + fmtWord(line.time) + ']v1: ' + parts);
+        });
+        document.getElementById('lrc-out').value = out.join('\n');
 
         var pill = document.getElementById('status-pill');
         if (pill) {
@@ -1559,7 +1585,9 @@ function restoreState() {
                 }
             }, 3000);
         }
-    } catch(e) {}
+    } catch(e) {
+        // If anything goes wrong, silently ignore — don't break the app
+    }
 }
 setTimeout(restoreState, 0);
 
