@@ -325,13 +325,15 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 .popup-done-btn:active { background: #ddd; }
 
 .nudge-line-row { background:#0d0d0d; border:1px solid #1e1e1e; border-radius:12px; margin-bottom:6px; overflow:hidden; }
-.nudge-line-words { display:flex; flex-wrap:wrap; gap:6px; padding:10px 12px; }
-.nudge-word-btn { background:transparent; border:1px solid #2a2a2a; border-radius:8px; color:#888; font-size:0.85rem; font-weight:700; padding:5px 10px; cursor:pointer; font-family:var(--font); }
-.nudge-word-btn.has-time { color:#fff; border-color:#444; }
-.nudge-word-btn.selected { background:#fff; color:#000; border-color:#fff; }
+.nudge-preview { padding:12px 14px; font-size:1.1rem; font-weight:700; line-height:1.8; color:rgba(255,255,255,0.2); cursor:default; }
+.nudge-preview-word { border-radius:5px; padding:1px 3px; cursor:pointer; transition:color 0.15s, background 0.15s; }
+.nudge-preview-word.no-time { color:rgba(255,255,255,0.1); }
+.nudge-preview-word.npw-past { color:rgba(255,255,255,0.4); }
+.nudge-preview-word.npw-now  { color:#fff; background:rgba(255,255,255,0.14); }
+.nudge-preview-word.npw-selected { outline:2px solid var(--split); border-radius:5px; color:var(--split); }
 .nudge-word-detail { display:none; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid #1e1e1e; flex-wrap:wrap; }
 .nudge-word-detail.show { display:flex; }
-.nudge-detail-word { font-size:0.9rem; font-weight:800; color:#fff; }
+.nudge-detail-word { font-size:0.9rem; font-weight:800; color:var(--split); }
 .nudge-detail-time { font-size:0.7rem; font-family:var(--mono); color:#555; flex:1; }
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
@@ -1186,6 +1188,7 @@ function openReview() {
     }
 
     document.getElementById('review-overlay').classList.add('open');
+    startNudgePreview();
 }
 
 function buildReviewItem(li, wi, word, line) {
@@ -1395,37 +1398,49 @@ function applyReviewAndClose() {
 
 function closeReview() {
     document.getElementById('review-overlay').classList.remove('open');
+    cancelAnimationFrame(nudgeRafId);
+    nudgeRafId = null;
 }
 
 function buildNudgeLineRow(li, line) {
     var container = document.createElement('div');
     container.className = 'nudge-line-row';
 
-    // Words row
-    var wordsDiv = document.createElement('div');
-    wordsDiv.className = 'nudge-line-words';
+    // Preview strip — words that animate as song plays
+    var preview = document.createElement('div');
+    preview.className = 'nudge-preview';
+    preview.id = 'nudge-preview-' + li;
 
-    // Detail panel (shown when a word is selected)
+    line.words.forEach(function(word, wi) {
+        var sp = document.createElement('span');
+        sp.className = 'nudge-preview-word' + (word.s !== null ? '' : ' no-time');
+        sp.id = 'npw-' + li + '_' + wi;
+        sp.textContent = word.t;
+        sp.onclick = function() { selectNudgeWord(li, wi, container, line); };
+        preview.appendChild(sp);
+        if (wi < line.words.length - 1) preview.appendChild(document.createTextNode(' '));
+    });
+
+    // Detail panel
     var detail = document.createElement('div');
     detail.className = 'nudge-word-detail';
     detail.id = 'nudge-detail-' + li;
 
-    var detailWord = document.createElement('span');
-    detailWord.className = 'nudge-detail-word';
+    var detailLabel = document.createElement('span');
+    detailLabel.className = 'nudge-detail-word';
     var detailTime = document.createElement('span');
     detailTime.className = 'nudge-detail-time';
+    detailTime.id = 'nudge-dt-' + li;
     var detailBtns = document.createElement('div');
-    detailBtns.style.cssText = 'display:flex;gap:5px;';
-
-    var selectedWi = { val: null };
+    detailBtns.style.cssText = 'display:flex;gap:5px;align-items:center;';
 
     [-0.1, +0.1].forEach(function(d) {
         var b = document.createElement('button');
         b.className = 'nudge-btn';
         b.textContent = d > 0 ? '+0.1' : '−0.1';
         b.onclick = function() {
-            var wi = selectedWi.val;
-            if (wi === null) return;
+            var wi = container._selectedWi;
+            if (wi == null) return;
             var wd = S.lyrics[li].words[wi];
             if (wd.s === null) return;
             wd.s = Math.max(0, wd.s + d);
@@ -1436,52 +1451,82 @@ function buildNudgeLineRow(li, line) {
         detailBtns.appendChild(b);
     });
 
-    var seekBtn = document.createElement('button');
-    seekBtn.className = 'sri-seek-btn';
-    seekBtn.textContent = '▶ Play';
-    seekBtn.onclick = function() {
-        var wi = selectedWi.val;
-        if (wi === null) return;
+    var playBtn = document.createElement('button');
+    playBtn.className = 'sri-seek-btn';
+    playBtn.textContent = '▶ Play';
+    playBtn.onclick = function() {
+        var wi = container._selectedWi;
+        if (wi == null) return;
         var t = S.lyrics[li].words[wi].s;
-        if (t !== null && player) try { player.seekTo(Math.max(0, t - 0.3), true); player.playVideo(); } catch(e) {}
+        if (t === null) return;
+        if (player) try { player.seekTo(Math.max(0, t - 0.3), true); player.playVideo(); } catch(e) {}
     };
-    detailBtns.appendChild(seekBtn);
+    detailBtns.appendChild(playBtn);
 
-    detail.appendChild(detailWord);
+    detail.appendChild(detailLabel);
     detail.appendChild(detailTime);
     detail.appendChild(detailBtns);
 
-    // Build word buttons
-    line.words.forEach(function(word, wi) {
-        var btn = document.createElement('button');
-        btn.className = 'nudge-word-btn' + (word.s !== null ? ' has-time' : '');
-        btn.id = 'nwb-' + li + '_' + wi;
-        btn.textContent = word.t;
-        btn.onclick = function() {
-            // Deselect if already selected
-            if (selectedWi.val === wi) {
-                selectedWi.val = null;
-                btn.classList.remove('selected');
-                detail.classList.remove('show');
-                return;
-            }
-            // Deselect previous
-            if (selectedWi.val !== null) {
-                var prev = document.getElementById('nwb-' + li + '_' + selectedWi.val);
-                if (prev) prev.classList.remove('selected');
-            }
-            selectedWi.val = wi;
-            btn.classList.add('selected');
-            detailWord.textContent = word.t;
-            detailTime.textContent = word.s !== null ? fmtWord(word.s) : '— not tapped';
-            detail.classList.add('show');
-        };
-        wordsDiv.appendChild(btn);
-    });
+    container._selectedWi = null;
+    container._li = li;
+    container._detailLabel = detailLabel;
+    container._detailTime = detailTime;
 
-    container.appendChild(wordsDiv);
+    container.appendChild(preview);
     container.appendChild(detail);
     return container;
+}
+
+function selectNudgeWord(li, wi, container, line) {
+    // Toggle off if already selected
+    if (container._selectedWi === wi) {
+        container._selectedWi = null;
+        document.getElementById('nudge-detail-' + li).classList.remove('show');
+        line.words.forEach(function(_, i) {
+            var sp = document.getElementById('npw-' + li + '_' + i);
+            if (sp) sp.classList.remove('npw-selected');
+        });
+        return;
+    }
+    // Deselect previous
+    if (container._selectedWi !== null) {
+        var prev = document.getElementById('npw-' + li + '_' + container._selectedWi);
+        if (prev) prev.classList.remove('npw-selected');
+    }
+    container._selectedWi = wi;
+    var sp = document.getElementById('npw-' + li + '_' + wi);
+    if (sp) sp.classList.add('npw-selected');
+    container._detailLabel.textContent = line.words[wi].t;
+    var t = line.words[wi].s;
+    document.getElementById('nudge-dt-' + li).textContent = t !== null ? fmtWord(t) : '— not tapped';
+    document.getElementById('nudge-detail-' + li).classList.add('show');
+}
+
+// RAF loop for live preview highlight in review popup
+var nudgeRafId = null;
+function startNudgePreview() {
+    cancelAnimationFrame(nudgeRafId);
+    (function loop() {
+        if (!document.getElementById('review-overlay').classList.contains('open')) {
+            nudgeRafId = null; return;
+        }
+        var t = now();
+        S.lyrics.forEach(function(line, li) {
+            if (line.type !== 'lyric') return;
+            var nowWi = -1;
+            line.words.forEach(function(w, wi) {
+                if (w.s !== null && t >= w.s) nowWi = wi;
+            });
+            line.words.forEach(function(w, wi) {
+                var sp = document.getElementById('npw-' + li + '_' + wi);
+                if (!sp) return;
+                sp.classList.remove('npw-past', 'npw-now');
+                if (wi < nowWi) sp.classList.add('npw-past');
+                else if (wi === nowWi) sp.classList.add('npw-now');
+            });
+        });
+        nudgeRafId = requestAnimationFrame(loop);
+    })();
 }
 
 // ── Export ─────────────────────────────────────────────────
