@@ -120,11 +120,12 @@ textarea::placeholder { color: var(--muted); }
 .lyric-line {
     padding: 10px 24px; font-size: 1.4rem; font-weight: 700;
     color: rgba(255,255,255,0.18); line-height: 1.6;
-    transform: scale(0.95); transform-origin: left center;
+    transform: scale(0.95) translateY(2px); transform-origin: left center;
     border-radius: 14px; margin: 2px 8px;
-    transition: color 0.2s, transform 0.2s;
+    transition: color 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
+    opacity: 0.7;
 }
-.lyric-line.active { color: rgba(255,255,255,0.85); transform: scale(1); }
+.lyric-line.active { color: rgba(255,255,255,0.9); transform: scale(1) translateY(0); opacity: 1; }
 .lyric-line.music-line {
     font-size: 0.9rem; color: rgba(255,255,255,0.1);
     font-style: italic; letter-spacing: 3px;
@@ -351,20 +352,15 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 .preview-line.p-active { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.9); }
 .pk-word {
     display: inline-block;
-    color: rgba(255,255,255,0.2);
     padding: 0 2px;
     cursor: pointer;
-    /* clip-path sweep: starts clipped to 0 width, expands right */
-    --sw: 0%;
-    background: linear-gradient(to right, #fff var(--sw), rgba(255,255,255,0.2) var(--sw));
+    background: linear-gradient(to right, #fff 0%, rgba(255,255,255,0.25) 0%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    will-change: --sw;
 }
 .pk-word.pk-past {
-    --sw: 100%;
-    background: linear-gradient(to right, rgba(255,255,255,0.45) 100%, rgba(255,255,255,0.45) 100%);
+    background: linear-gradient(to right, rgba(255,255,255,0.5) 100%, rgba(255,255,255,0.5) 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -1095,17 +1091,16 @@ function jumpTo(li, wi) {
     S.lastTapped = null;
     splitState = null; updateDockForSplit(false);
 
-    // Clear timestamps for words AFTER wi in the target line (redo from next word)
-    // We do NOT reset the word at wi itself — user may just want to re-enter split mode to review/continue
+    // Clear timestamps for words AT and AFTER wi in the target line
     if (S.mode === 'word' && S.lyrics[li] && S.lyrics[li].type === 'lyric') {
         S.lyrics[li].words.forEach(function(w, i) {
-            if (i > wi) {
+            if (i >= wi) {
                 w.s = null; w.e = null;
                 if (w.splits) w.splits.forEach(function(p) { p.s = null; p.e = null; });
             }
         });
-        // Only clear line time if jumping to word 0
-        if (wi === 0) S.lyrics[li].time = null;
+        // Reset line.time only if first word's stamp was the line's time anchor
+        // But keep it so preview still works — redoLine saves it before calling jumpTo
     }
 
     // Update line active classes
@@ -1558,20 +1553,23 @@ function closePreview() {
 }
 
 function redoLine(li) {
-    closePreview();
     var line = S.lyrics[li];
     if (!line || line.type !== 'lyric') return;
+    // Save timestamp before anything changes
+    var seekTo = line.time !== null ? Math.max(0, line.time - 1.5) : null;
+    closePreview();
     jumpTo(li, 0);
-    // Seek to 1.5s before line start so user hears the run-up
-    var t = line.time;
-    if (t !== null && player) {
-        try {
-            player.seekTo(Math.max(0, t - 1.5), true);
-            player.playVideo();
-            isPlaying = true;
-            updatePlayBtn();
-        } catch(e) {}
-    }
+    // Small delay so player isn't blocked by overlay transition
+    setTimeout(function() {
+        if (seekTo !== null && player) {
+            try {
+                player.seekTo(seekTo, true);
+                player.playVideo();
+                isPlaying = true;
+                updatePlayBtn();
+            } catch(e) {}
+        }
+    }, 80);
 }
 
 function startPreviewLoop() {
@@ -1615,12 +1613,14 @@ function startPreviewLoop() {
 
                 var pct;
                 if (t < word.s) {
-                    // upcoming
+                    // upcoming — reset to CSS default (dim)
                     el.classList.remove('pk-past');
-                    pct = 0;
+                    el.style.backgroundImage = '';
+                    return;
                 } else if (word.e !== null && t >= word.e) {
-                    // fully past — use class, no inline style needed
+                    // fully past — clear inline style, let .pk-past CSS handle it
                     el.classList.add('pk-past');
+                    el.style.backgroundImage = '';
                     return;
                 } else if (word.e !== null) {
                     // actively sweeping
@@ -1629,12 +1629,11 @@ function startPreviewLoop() {
                     var eased = progress < 0.5 ? 2*progress*progress : -1+(4-2*progress)*progress;
                     pct = Math.min(100, eased * 100);
                 } else {
-                    // stamped but no end time — light up fully
+                    // stamped but no end time
                     el.classList.remove('pk-past');
                     pct = t >= word.s ? 100 : 0;
                 }
-                // Single element gradient: white left of pct, dim right of pct
-                el.style.backgroundImage = 'linear-gradient(to right, #fff ' + pct.toFixed(1) + '%, rgba(255,255,255,0.2) ' + pct.toFixed(1) + '%)';
+                el.style.backgroundImage = 'linear-gradient(to right, #fff ' + pct.toFixed(1) + '%, rgba(255,255,255,0.25) ' + pct.toFixed(1) + '%)';
             });
         });
 
