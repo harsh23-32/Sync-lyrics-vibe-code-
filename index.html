@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>eLRC v2.14</title>
+<title>eLRC v2.15</title>
 <script src="https://www.youtube.com/iframe_api"></script>
 <style>
 :root {
@@ -325,18 +325,18 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 .popup-done-btn:active { background: #ddd; }
 
 .word-nudge-section { margin-top: 8px; }
-.word-nudge-section-title {
+.word-nudge-title {
     font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
-    letter-spacing: 1px; color: var(--muted); margin-bottom: 10px;
+    letter-spacing: 1px; color: var(--muted); margin-bottom: 10px; padding: 0 2px;
 }
 .word-nudge-item {
     display: flex; align-items: center; gap: 10px;
     background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 10px;
     padding: 8px 12px; margin-bottom: 6px;
 }
-.wni-word { font-size: 0.9rem; font-weight: 800; color: #fff; min-width: 60px; flex-shrink: 0; }
-.wni-time { font-size: 0.7rem; font-family: var(--mono); color: #555; flex-shrink: 0; min-width: 70px; }
-.wni-nudge-row { display: flex; gap: 5px; margin-left: auto; }
+.wni-word { font-size: 0.9rem; font-weight: 800; color: #fff; min-width: 70px; flex-shrink: 0; }
+.wni-time { font-size: 0.7rem; font-family: var(--mono); color: #555; flex: 1; }
+.wni-nudge-row { display: flex; gap: 5px; align-items: center; }
 
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
@@ -610,21 +610,8 @@ function setSpeed(idx) {
     }
 }
 
-// ── Auto-save ──────────────────────────────────────────────
-var SAVE_KEY = 'elrc_autosave_v14';
-
-function saveState() {
-    try {
-        var raw = document.getElementById('raw-input');
-        var data = {
-            S: S,
-            splitState: splitState,
-            rawInput: raw ? raw.value : '',
-            savedAt: Date.now()
-        };
-        localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-    } catch(e) {}
-}
+// ── State ──────────────────────────────────────────────────
+var S = { mode: 'line', lyrics: [], li: 0, wi: 0, lastTapped: null };
 
 // Split state: which word is currently split-marked and how many taps remain
 // splitState = null | { li, wi, totalParts, tappedSoFar }
@@ -654,7 +641,6 @@ function initLyrics() {
     });
     renderAll();
     closeDrawer();
-    saveState();
 }
 
 // ── Render ─────────────────────────────────────────────────
@@ -1160,7 +1146,6 @@ function genLRC() {
         if (parts) out.push('[' + fmtWord(line.time) + ']v1: ' + parts);
     });
     document.getElementById('lrc-out').value = out.join('\n');
-    saveState();
 }
 
 // ── REVIEW POPUP ───────────────────────────────────────────
@@ -1168,25 +1153,25 @@ function openReview() {
     var body = document.getElementById('review-body');
     body.innerHTML = '';
 
-    // ── Section 1: Split words ──
-    var splitFound = false;
+    // Section 1: Split words
+    var found = false;
     S.lyrics.forEach(function(line, li) {
         if (line.type !== 'lyric') return;
         line.words.forEach(function(word, wi) {
             if (!word.splits || word.splits.length === 0) return;
-            splitFound = true;
+            found = true;
             body.appendChild(buildReviewItem(li, wi, word, line));
         });
     });
 
-    if (!splitFound) {
+    if (!found) {
         var noSplit = document.createElement('div');
-        noSplit.style.cssText = 'text-align:center;padding:24px 40px;color:#444;font-size:0.9rem;';
+        noSplit.style.cssText = 'text-align:center;padding:24px 40px 8px;color:#444;font-size:0.9rem;';
         noSplit.innerHTML = 'No split words found.<br>Long press a word while tagging to mark it for splitting.';
         body.appendChild(noSplit);
     }
 
-    // ── Section 2: Word timestamp nudge ──
+    // Section 2: Word timestamp nudge
     var taggedWords = [];
     S.lyrics.forEach(function(line, li) {
         if (line.type !== 'lyric') return;
@@ -1198,16 +1183,13 @@ function openReview() {
     if (taggedWords.length > 0) {
         var section = document.createElement('div');
         section.className = 'word-nudge-section';
-
         var title = document.createElement('div');
-        title.className = 'word-nudge-section-title';
+        title.className = 'word-nudge-title';
         title.textContent = 'Word Timestamps';
         section.appendChild(title);
-
-        taggedWords.forEach(function(entry) {
-            section.appendChild(buildWordNudgeRow(entry.li, entry.wi, entry.word));
+        taggedWords.forEach(function(e) {
+            section.appendChild(buildWordNudgeRow(e.li, e.wi, e.word));
         });
-
         body.appendChild(section);
     }
 
@@ -1426,7 +1408,6 @@ function closeReview() {
 function buildWordNudgeRow(li, wi, word) {
     var row = document.createElement('div');
     row.className = 'word-nudge-item';
-    row.id = 'wni-' + li + '_' + wi;
 
     var wordEl = document.createElement('div');
     wordEl.className = 'wni-word';
@@ -1457,7 +1438,6 @@ function buildWordNudgeRow(li, wi, word) {
         nudgeRow.appendChild(nb);
     });
 
-    // Seek to word
     var seekBtn = document.createElement('button');
     seekBtn.className = 'sri-seek-btn';
     seekBtn.textContent = '▶';
@@ -1523,73 +1503,6 @@ function fmtShort(s) {
 }
 function p2(n) { return n.toString().padStart(2,'0'); }
 function p3(n) { return n.toString().padStart(3,'0'); }
-
-// ── Restore on load ────────────────────────────────────────
-function restoreState() {
-    try {
-        var saved = localStorage.getItem(SAVE_KEY);
-        if (!saved) return;
-        var data = JSON.parse(saved);
-        if (!data || !data.S || !Array.isArray(data.S.lyrics) || !data.S.lyrics.length) return;
-
-        var rawEl = document.getElementById('raw-input');
-        if (rawEl && data.rawInput) rawEl.value = data.rawInput;
-
-        S.mode = data.S.mode === 'word' ? 'word' : 'line';
-        S.lyrics = data.S.lyrics;
-        S.li = typeof data.S.li === 'number' ? data.S.li : 0;
-        S.wi = typeof data.S.wi === 'number' ? data.S.wi : 0;
-        S.lastTapped = data.S.lastTapped || null;
-        splitState = data.splitState || null;
-
-        // Clamp indices to valid range
-        if (S.li >= S.lyrics.length) S.li = 0;
-        if (S.lyrics[S.li] && S.wi >= (S.lyrics[S.li].words || []).length) S.wi = 0;
-
-        document.getElementById('btn-line').classList.toggle('active', S.mode === 'line');
-        document.getElementById('btn-word').classList.toggle('active', S.mode === 'word');
-
-        renderAll();
-
-        // Rebuild LRC output without triggering another save
-        var out = [];
-        S.lyrics.forEach(function(line) {
-            if (line.time === null) return;
-            if (line.type === 'music') { out.push('[' + fmtLine(line.time) + ']'); return; }
-            if (S.mode === 'line') { out.push('[' + fmtLine(line.time) + '] ' + line.text); return; }
-            var parts = '';
-            line.words.forEach(function(w, wi) {
-                if (w.s === null) return;
-                if (w.splits && w.splits.length > 0 && w.splits[0].s !== null) {
-                    w.splits.forEach(function(sp) { if (sp.s !== null) parts += '<' + fmtWord(sp.s) + '>' + (sp.text || ''); });
-                    if (wi < line.words.length - 1) parts += ' ';
-                } else {
-                    parts += '<' + fmtWord(w.s) + '>' + w.t;
-                    if (wi < line.words.length - 1) parts += ' ';
-                }
-            });
-            var last = line.words[line.words.length - 1];
-            if (last && last.e !== null) parts += '<' + fmtWord(last.e) + '>';
-            if (parts) out.push('[' + fmtWord(line.time) + ']v1: ' + parts);
-        });
-        document.getElementById('lrc-out').value = out.join('\n');
-
-        var pill = document.getElementById('status-pill');
-        if (pill) {
-            pill.textContent = '💾 Session restored';
-            pill.style.color = '#00cc66';
-            setTimeout(function() {
-                if (pill.textContent === '💾 Session restored') {
-                    pill.textContent = 'Waiting for YouTube API…';
-                    pill.style.color = '#555';
-                }
-            }, 3000);
-        }
-    } catch(e) {
-        // If anything goes wrong, silently ignore — don't break the app
-    }
-}
-setTimeout(restoreState, 0);
 
 // ── Keyboard ───────────────────────────────────────────────
 document.addEventListener('keydown', function(e) {
