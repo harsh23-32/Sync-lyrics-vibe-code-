@@ -351,7 +351,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
     color: rgba(255,255,255,0.18);
     transition: color 0.2s;
 }
-.preview-line.p-active { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.9); }
+.preview-line.p-active { background: rgba(255,255,255,0.04); }
 .pk-word {
     display: inline-block;
     padding: 0 2px;
@@ -1507,12 +1507,20 @@ function openPreview() {
             div.textContent = '♪  ♪  ♪';
         } else {
             div.className = 'preview-line';
-            // Line mode: just show text, highlight handled by p-active CSS
+            // Both modes use the same sweep structure per line
+            // Line mode: one pk-word wrapping the whole line text
+            // Word mode: one pk-word per word
             if (S.mode === 'line') {
-                var txt = document.createElement('span');
-                txt.style.cssText = 'flex:1;';
-                txt.textContent = line.text;
-                div.appendChild(txt);
+                var outer = document.createElement('span');
+                outer.className = 'pk-word';
+                outer.id = 'pkl-' + li;
+                outer.setAttribute('data-word', line.text);
+                outer.textContent = line.text;
+                var fill = document.createElement('span');
+                fill.className = 'pk-fill';
+                fill.textContent = line.text;
+                outer.appendChild(fill);
+                div.appendChild(outer);
             } else {
                 // Word mode: overlay-based sweep, no blur
                 line.words.forEach(function(word, wi) {
@@ -1598,29 +1606,58 @@ function startPreviewLoop() {
         }
         var t = now();
 
-        // Find active line
+        // Find active line index
         var activeLi = -1;
         S.lyrics.forEach(function(line, li) {
             if (line.time !== null && t >= line.time) activeLi = li;
         });
 
-        // Update active line class + scroll
+        // Scroll when line changes
         if (activeLi !== lastActiveLi) {
-            if (lastActiveLi >= 0) {
-                var old = document.getElementById('pl-' + lastActiveLi);
-                if (old) old.classList.remove('p-active');
-            }
             if (activeLi >= 0) {
                 var el = document.getElementById('pl-' + activeLi);
-                if (el) {
-                    el.classList.add('p-active');
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
             lastActiveLi = activeLi;
         }
 
-        // Update word sweeps (word mode only)
+        // ── LINE MODE ──────────────────────────────────────────
+        if (S.mode === 'line') {
+            S.lyrics.forEach(function(line, li) {
+                if (line.type !== 'lyric' || line.time === null) return;
+                var el = document.getElementById('pkl-' + li);
+                if (!el) return;
+                var fill = el.querySelector('.pk-fill');
+                if (!fill) return;
+
+                if (li !== activeLi) {
+                    // Not current line — dim, no fill
+                    fill.style.width = '0%';
+                    return;
+                }
+
+                // Current line — find next line time for sweep duration
+                var nextTime = null;
+                for (var ni = li + 1; ni < S.lyrics.length; ni++) {
+                    if (S.lyrics[ni].time !== null) { nextTime = S.lyrics[ni].time; break; }
+                }
+
+                if (nextTime !== null && nextTime > line.time) {
+                    var progress = (t - line.time) / (nextTime - line.time);
+                    var eased = progress < 0.5
+                        ? 2 * progress * progress
+                        : -1 + (4 - 2 * progress) * progress;
+                    fill.style.width = Math.min(100, eased * 100).toFixed(1) + '%';
+                } else {
+                    // Last line — sweep to full over ~3s
+                    var dur = 3;
+                    var p = Math.min(1, (t - line.time) / dur);
+                    fill.style.width = (p * 100).toFixed(1) + '%';
+                }
+            });
+        }
+
+        // ── WORD MODE ──────────────────────────────────────────
         if (S.mode !== 'line') {
             S.lyrics.forEach(function(line, li) {
                 if (line.type !== 'lyric') return;
@@ -1630,33 +1667,27 @@ function startPreviewLoop() {
                     var fill = el.querySelector('.pk-fill');
                     if (!fill) return;
 
-                    if (word.s === null) {
-                        // never stamped — stay dim, fill at 0
-                        fill.style.width = '0%';
-                        return;
-                    }
-
-                    if (t < word.s) {
-                        // not reached yet
-                        fill.style.width = '0%';
-                        return;
-                    }
+                    if (word.s === null) { fill.style.width = '0%'; return; }
+                    if (t < word.s)      { fill.style.width = '0%'; return; }
 
                     if (word.e !== null && t >= word.e) {
-                        // fully past — full white, stays
-                        fill.style.width = '100%';
+                        // Past word in a PAST line — dim it back
+                        // Past word in ACTIVE line — keep white
+                        if (li !== activeLi) {
+                            fill.style.width = '0%';
+                        } else {
+                            fill.style.width = '100%';
+                        }
                         return;
                     }
 
                     if (word.e !== null) {
-                        // sweeping
                         var progress = (t - word.s) / (word.e - word.s);
                         var eased = progress < 0.5
                             ? 2 * progress * progress
                             : -1 + (4 - 2 * progress) * progress;
                         fill.style.width = Math.min(100, eased * 100).toFixed(1) + '%';
                     } else {
-                        // stamped, no end time — snap to full
                         fill.style.width = '100%';
                     }
                 });
