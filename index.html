@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>eLRC v2.15</title>
+<title>eLRC v2.12</title>
 <script src="https://www.youtube.com/iframe_api"></script>
 <style>
 :root {
@@ -323,20 +323,6 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
     font-size: 0.9rem; font-weight: 900; cursor: pointer; flex-shrink: 0;
 }
 .popup-done-btn:active { background: #ddd; }
-
-.word-nudge-section { margin-top: 8px; }
-.word-nudge-title {
-    font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
-    letter-spacing: 1px; color: var(--muted); margin-bottom: 10px; padding: 0 2px;
-}
-.word-nudge-item {
-    display: flex; align-items: center; gap: 10px;
-    background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 10px;
-    padding: 8px 12px; margin-bottom: 6px;
-}
-.wni-word { font-size: 0.9rem; font-weight: 800; color: #fff; min-width: 70px; flex-shrink: 0; }
-.wni-time { font-size: 0.7rem; font-family: var(--mono); color: #555; flex: 1; }
-.wni-nudge-row { display: flex; gap: 5px; align-items: center; }
 
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
@@ -1153,7 +1139,7 @@ function openReview() {
     var body = document.getElementById('review-body');
     body.innerHTML = '';
 
-    // Section 1: Split words
+    // Collect all words with splits
     var found = false;
     S.lyrics.forEach(function(line, li) {
         if (line.type !== 'lyric') return;
@@ -1165,32 +1151,7 @@ function openReview() {
     });
 
     if (!found) {
-        var noSplit = document.createElement('div');
-        noSplit.style.cssText = 'text-align:center;padding:24px 40px 8px;color:#444;font-size:0.9rem;';
-        noSplit.innerHTML = 'No split words found.<br>Long press a word while tagging to mark it for splitting.';
-        body.appendChild(noSplit);
-    }
-
-    // Section 2: Word timestamp nudge
-    var taggedWords = [];
-    S.lyrics.forEach(function(line, li) {
-        if (line.type !== 'lyric') return;
-        line.words.forEach(function(word, wi) {
-            if (word.s !== null) taggedWords.push({ li: li, wi: wi, word: word });
-        });
-    });
-
-    if (taggedWords.length > 0) {
-        var section = document.createElement('div');
-        section.className = 'word-nudge-section';
-        var title = document.createElement('div');
-        title.className = 'word-nudge-title';
-        title.textContent = 'Word Timestamps';
-        section.appendChild(title);
-        taggedWords.forEach(function(e) {
-            section.appendChild(buildWordNudgeRow(e.li, e.wi, e.word));
-        });
-        body.appendChild(section);
+        body.innerHTML = '<div style="text-align:center;padding:40px;color:#444;font-size:0.9rem;">No split words found.<br>Long press a word while tagging to mark it for splitting.</div>';
     }
 
     document.getElementById('review-overlay').classList.add('open');
@@ -1405,56 +1366,6 @@ function closeReview() {
     document.getElementById('review-overlay').classList.remove('open');
 }
 
-function buildWordNudgeRow(li, wi, word) {
-    var row = document.createElement('div');
-    row.className = 'word-nudge-item';
-
-    var wordEl = document.createElement('div');
-    wordEl.className = 'wni-word';
-    wordEl.textContent = word.t;
-
-    var timeEl = document.createElement('div');
-    timeEl.className = 'wni-time';
-    timeEl.id = 'wni-time-' + li + '_' + wi;
-    timeEl.textContent = fmtWord(word.s);
-
-    var nudgeRow = document.createElement('div');
-    nudgeRow.className = 'wni-nudge-row';
-
-    [-0.1, +0.1].forEach(function(delta) {
-        var nb = document.createElement('button');
-        nb.className = 'nudge-btn';
-        nb.textContent = delta > 0 ? '+0.1' : '−0.1';
-        nb.onclick = (function(l, w, d) {
-            return function() {
-                var wd = S.lyrics[l].words[w];
-                if (wd.s === null) return;
-                wd.s = Math.max(0, wd.s + d);
-                if (w === 0) S.lyrics[l].time = wd.s;
-                document.getElementById('wni-time-' + l + '_' + w).textContent = fmtWord(wd.s);
-                genLRC();
-            };
-        })(li, wi, delta);
-        nudgeRow.appendChild(nb);
-    });
-
-    var seekBtn = document.createElement('button');
-    seekBtn.className = 'sri-seek-btn';
-    seekBtn.textContent = '▶';
-    seekBtn.style.marginLeft = '4px';
-    seekBtn.onclick = (function(t) {
-        return function() {
-            if (player) try { player.seekTo(Math.max(0, t - 0.5), true); } catch(e) {}
-        };
-    })(word.s);
-    nudgeRow.appendChild(seekBtn);
-
-    row.appendChild(wordEl);
-    row.appendChild(timeEl);
-    row.appendChild(nudgeRow);
-    return row;
-}
-
 // ── Export ─────────────────────────────────────────────────
 function copyLRC() {
     genLRC();
@@ -1505,12 +1416,6 @@ function p2(n) { return n.toString().padStart(2,'0'); }
 function p3(n) { return n.toString().padStart(3,'0'); }
 
 // ── Keyboard ───────────────────────────────────────────────
-// Clear any old autosave keys from broken versions
-try {
-    ['elrc_autosave', 'elrc_autosave_v14'].forEach(function(k) {
-        localStorage.removeItem(k);
-    });
-} catch(e) {}
 document.addEventListener('keydown', function(e) {
     if (e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT') return;
     if (e.code==='Space')      { e.preventDefault(); togglePlay(); }
