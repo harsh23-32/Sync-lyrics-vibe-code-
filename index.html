@@ -488,7 +488,7 @@ function createPlayer(id) {
     document.querySelector('.yt-box').innerHTML = '<div id="yt-player"></div>';
     player = new YT.Player('yt-player', {
         videoId: id, width: '100%', height: '100%',
-        playerVars: { playsinline: 1, controls: 1, rel: 0, modestbranding: 1 },
+        playerVars: { playsinline: 1, controls: 1, rel: 0, modestbranding: 1, enablejsapi: 1, origin: window.location.origin || '*' },
         events: {
             onReady: function() {
                 setStatus('✅ Video loaded — press ▶ to play', '#00cc66');
@@ -1400,6 +1400,7 @@ function closeReview() {
     document.getElementById('review-overlay').classList.remove('open');
     cancelAnimationFrame(nudgeRafId);
     nudgeRafId = null;
+    nudgeLocalClock = null;
 }
 
 function buildNudgeLineRow(li, line) {
@@ -1459,6 +1460,8 @@ function buildNudgeLineRow(li, line) {
         if (wi == null) return;
         var t = S.lyrics[li].words[wi].s;
         if (t === null) return;
+        // Set local clock so preview works even without YouTube player
+        nudgeLocalClock = { startedAt: Date.now(), offsetSeconds: Math.max(0, t - 0.3) };
         if (player) try { player.seekTo(Math.max(0, t - 0.3), true); player.playVideo(); } catch(e) {}
     };
     detailBtns.appendChild(playBtn);
@@ -1504,27 +1507,43 @@ function selectNudgeWord(li, wi, container, line) {
 
 // RAF loop for live preview highlight in review popup
 var nudgeRafId = null;
+var nudgeLocalClock = null; // { startedAt, offsetSeconds } — fallback when player unavailable
+
+function nowForPreview() {
+    // Try real player first
+    if (player && typeof player.getCurrentTime === 'function') {
+        try { var t = player.getCurrentTime(); if (t > 0 || isPlaying) return t; } catch(e) {}
+    }
+    // Fall back to local clock if preview play was triggered
+    if (nudgeLocalClock) {
+        return nudgeLocalClock.offsetSeconds + (Date.now() - nudgeLocalClock.startedAt) / 1000;
+    }
+    return -1; // nothing to show
+}
+
 function startNudgePreview() {
     cancelAnimationFrame(nudgeRafId);
     (function loop() {
         if (!document.getElementById('review-overlay').classList.contains('open')) {
             nudgeRafId = null; return;
         }
-        var t = now();
-        S.lyrics.forEach(function(line, li) {
-            if (line.type !== 'lyric') return;
-            var nowWi = -1;
-            line.words.forEach(function(w, wi) {
-                if (w.s !== null && t >= w.s) nowWi = wi;
+        var t = nowForPreview();
+        if (t >= 0) {
+            S.lyrics.forEach(function(line, li) {
+                if (line.type !== 'lyric') return;
+                var nowWi = -1;
+                line.words.forEach(function(w, wi) {
+                    if (w.s !== null && t >= w.s) nowWi = wi;
+                });
+                line.words.forEach(function(w, wi) {
+                    var sp = document.getElementById('npw-' + li + '_' + wi);
+                    if (!sp) return;
+                    sp.classList.remove('npw-past', 'npw-now');
+                    if (wi < nowWi) sp.classList.add('npw-past');
+                    else if (wi === nowWi) sp.classList.add('npw-now');
+                });
             });
-            line.words.forEach(function(w, wi) {
-                var sp = document.getElementById('npw-' + li + '_' + wi);
-                if (!sp) return;
-                sp.classList.remove('npw-past', 'npw-now');
-                if (wi < nowWi) sp.classList.add('npw-past');
-                else if (wi === nowWi) sp.classList.add('npw-now');
-            });
-        });
+        }
         nudgeRafId = requestAnimationFrame(loop);
     })();
 }
