@@ -270,7 +270,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
     display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
 }
 .popup-head h3 { font-size: 0.95rem; font-weight: 900; }
-.popup-body { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 20px; }
+.popup-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 20px; }
 .split-review-item {
     background: #141414; border: 1px solid #2a2a2a; border-radius: 16px;
     padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
@@ -324,10 +324,15 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 }
 .popup-done-btn:active { background: #ddd; }
 
-.wni-row { display:flex; align-items:center; gap:10px; background:#0d0d0d; border:1px solid #1e1e1e; border-radius:10px; padding:8px 12px; margin-bottom:6px; }
-.wni-word { font-size:0.9rem; font-weight:800; color:#fff; min-width:70px; flex-shrink:0; }
-.wni-time { font-size:0.7rem; font-family:var(--mono); color:#555; flex:1; }
-.wni-btns { display:flex; gap:5px; }
+.nudge-line-row { background:#0d0d0d; border:1px solid #1e1e1e; border-radius:12px; margin-bottom:6px; overflow:hidden; }
+.nudge-line-words { display:flex; flex-wrap:wrap; gap:6px; padding:10px 12px; }
+.nudge-word-btn { background:transparent; border:1px solid #2a2a2a; border-radius:8px; color:#888; font-size:0.85rem; font-weight:700; padding:5px 10px; cursor:pointer; font-family:var(--font); }
+.nudge-word-btn.has-time { color:#fff; border-color:#444; }
+.nudge-word-btn.selected { background:#fff; color:#000; border-color:#fff; }
+.nudge-word-detail { display:none; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid #1e1e1e; flex-wrap:wrap; }
+.nudge-word-detail.show { display:flex; }
+.nudge-detail-word { font-size:0.9rem; font-weight:800; color:#fff; }
+.nudge-detail-time { font-size:0.7rem; font-family:var(--mono); color:#555; flex:1; }
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
 </style>
@@ -370,7 +375,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
                 <div class="export-btns">
                     <button class="btn" onclick="copyLRC()">Copy</button>
                     <button class="btn" onclick="downloadLRC()">Download</button>
-                    <button class="btn" onclick="openReview()" style="color:var(--split);border-color:#3a2800;" id="review-btn">✂ Review Splits</button>
+                    <button class="btn" onclick="openReview()" style="color:var(--split);border-color:#3a2800;" id="review-btn">✂ Review & Nudge</button>
                 </div>
             </div>
         </div>
@@ -429,7 +434,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 <div class="popup-overlay" id="review-overlay">
     <div class="popup-sheet">
         <div class="popup-head">
-            <h3>✂ Split Word Review</h3>
+            <h3>✂ Review & Nudge</h3>
             <button class="close-btn" onclick="closeReview()">×</button>
         </div>
         <div class="popup-body" id="review-body"></div>
@@ -1158,22 +1163,25 @@ function openReview() {
         body.innerHTML = '<div style="text-align:center;padding:40px;color:#444;font-size:0.9rem;">No split words found.<br>Long press a word while tagging to mark it for splitting.</div>';
     }
 
-    // Word timestamp nudge section
-    var tagged = [];
-    S.lyrics.forEach(function(line, li) {
+    // Word timestamp nudge section — line by line
+    var hasAnyTimestamp = false;
+    S.lyrics.forEach(function(line) {
         if (line.type !== 'lyric') return;
-        line.words.forEach(function(word, wi) {
-            if (word.s !== null) tagged.push({ li: li, wi: wi, word: word });
-        });
+        line.words.forEach(function(w) { if (w.s !== null) hasAnyTimestamp = true; });
     });
-    if (tagged.length > 0) {
+    if (hasAnyTimestamp) {
         var sec = document.createElement('div');
         sec.style.marginTop = '12px';
         var secTitle = document.createElement('div');
         secTitle.style.cssText = 'font-size:0.65rem;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:10px;';
         secTitle.textContent = 'Word Timestamps';
         sec.appendChild(secTitle);
-        tagged.forEach(function(e) { sec.appendChild(buildWNIRow(e.li, e.wi, e.word)); });
+        S.lyrics.forEach(function(line, li) {
+            if (line.type !== 'lyric') return;
+            var hasTime = line.words.some(function(w) { return w.s !== null; });
+            if (!hasTime) return;
+            sec.appendChild(buildNudgeLineRow(li, line));
+        });
         body.appendChild(sec);
     }
 
@@ -1389,45 +1397,91 @@ function closeReview() {
     document.getElementById('review-overlay').classList.remove('open');
 }
 
-function buildWNIRow(li, wi, word) {
-    var row = document.createElement('div');
-    row.className = 'wni-row';
-    var wEl = document.createElement('div');
-    wEl.className = 'wni-word';
-    wEl.textContent = word.t;
-    var tEl = document.createElement('div');
-    tEl.className = 'wni-time';
-    tEl.id = 'wni-t-' + li + '_' + wi;
-    tEl.textContent = fmtWord(word.s);
-    var btns = document.createElement('div');
-    btns.className = 'wni-btns';
+function buildNudgeLineRow(li, line) {
+    var container = document.createElement('div');
+    container.className = 'nudge-line-row';
+
+    // Words row
+    var wordsDiv = document.createElement('div');
+    wordsDiv.className = 'nudge-line-words';
+
+    // Detail panel (shown when a word is selected)
+    var detail = document.createElement('div');
+    detail.className = 'nudge-word-detail';
+    detail.id = 'nudge-detail-' + li;
+
+    var detailWord = document.createElement('span');
+    detailWord.className = 'nudge-detail-word';
+    var detailTime = document.createElement('span');
+    detailTime.className = 'nudge-detail-time';
+    var detailBtns = document.createElement('div');
+    detailBtns.style.cssText = 'display:flex;gap:5px;';
+
+    var selectedWi = { val: null };
+
     [-0.1, +0.1].forEach(function(d) {
         var b = document.createElement('button');
         b.className = 'nudge-btn';
         b.textContent = d > 0 ? '+0.1' : '−0.1';
-        b.onclick = (function(l, w, delta) {
-            return function() {
-                var wd = S.lyrics[l].words[w];
-                if (wd.s === null) return;
-                wd.s = Math.max(0, wd.s + delta);
-                if (w === 0) S.lyrics[l].time = wd.s;
-                document.getElementById('wni-t-' + l + '_' + w).textContent = fmtWord(wd.s);
-                genLRC();
-            };
-        })(li, wi, d);
-        btns.appendChild(b);
+        b.onclick = function() {
+            var wi = selectedWi.val;
+            if (wi === null) return;
+            var wd = S.lyrics[li].words[wi];
+            if (wd.s === null) return;
+            wd.s = Math.max(0, wd.s + d);
+            if (wi === 0) S.lyrics[li].time = wd.s;
+            detailTime.textContent = fmtWord(wd.s);
+            genLRC();
+        };
+        detailBtns.appendChild(b);
     });
-    var sk = document.createElement('button');
-    sk.className = 'sri-seek-btn';
-    sk.textContent = '▶';
-    sk.onclick = (function(t) {
-        return function() { if (player) try { player.seekTo(Math.max(0, t - 0.5), true); } catch(e) {} };
-    })(word.s);
-    btns.appendChild(sk);
-    row.appendChild(wEl);
-    row.appendChild(tEl);
-    row.appendChild(btns);
-    return row;
+
+    var seekBtn = document.createElement('button');
+    seekBtn.className = 'sri-seek-btn';
+    seekBtn.textContent = '▶ Play';
+    seekBtn.onclick = function() {
+        var wi = selectedWi.val;
+        if (wi === null) return;
+        var t = S.lyrics[li].words[wi].s;
+        if (t !== null && player) try { player.seekTo(Math.max(0, t - 0.3), true); player.playVideo(); } catch(e) {}
+    };
+    detailBtns.appendChild(seekBtn);
+
+    detail.appendChild(detailWord);
+    detail.appendChild(detailTime);
+    detail.appendChild(detailBtns);
+
+    // Build word buttons
+    line.words.forEach(function(word, wi) {
+        var btn = document.createElement('button');
+        btn.className = 'nudge-word-btn' + (word.s !== null ? ' has-time' : '');
+        btn.id = 'nwb-' + li + '_' + wi;
+        btn.textContent = word.t;
+        btn.onclick = function() {
+            // Deselect if already selected
+            if (selectedWi.val === wi) {
+                selectedWi.val = null;
+                btn.classList.remove('selected');
+                detail.classList.remove('show');
+                return;
+            }
+            // Deselect previous
+            if (selectedWi.val !== null) {
+                var prev = document.getElementById('nwb-' + li + '_' + selectedWi.val);
+                if (prev) prev.classList.remove('selected');
+            }
+            selectedWi.val = wi;
+            btn.classList.add('selected');
+            detailWord.textContent = word.t;
+            detailTime.textContent = word.s !== null ? fmtWord(word.s) : '— not tapped';
+            detail.classList.add('show');
+        };
+        wordsDiv.appendChild(btn);
+    });
+
+    container.appendChild(wordsDiv);
+    container.appendChild(detail);
+    return container;
 }
 
 // ── Export ─────────────────────────────────────────────────
