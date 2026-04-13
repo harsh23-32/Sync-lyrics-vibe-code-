@@ -345,21 +345,31 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
     margin-bottom: 6px; padding: 8px 12px; border-radius: 14px;
     display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 2px;
     position: relative;
+    color: rgba(255,255,255,0.18);
+    transition: color 0.2s;
 }
-.preview-line.p-active { background: rgba(255,255,255,0.04); }
+.preview-line.p-active { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.9); }
 .pk-word {
-    position: relative; display: inline-block;
-    color: rgba(255,255,255,0.15); padding: 0 3px;
-    cursor: default;
+    display: inline-block;
+    color: rgba(255,255,255,0.2);
+    padding: 0 2px;
+    cursor: pointer;
+    /* clip-path sweep: starts clipped to 0 width, expands right */
+    --sw: 0%;
+    background: linear-gradient(to right, #fff var(--sw), rgba(255,255,255,0.2) var(--sw));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    will-change: --sw;
 }
-.pk-word .pk-sweep {
-    position: absolute; top: 0; left: 0;
-    color: #fff; white-space: nowrap; overflow: hidden; width: 0%;
-    text-shadow: 0 0 20px rgba(255,255,255,0.8), 0 0 40px rgba(255,255,255,0.3);
-    pointer-events: none;
+.pk-word.pk-past {
+    --sw: 100%;
+    background: linear-gradient(to right, rgba(255,255,255,0.45) 100%, rgba(255,255,255,0.45) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
-.pk-word.pk-past { color: rgba(255,255,255,0.4); }
-.pk-word.pk-past .pk-sweep { width: 100% !important; text-shadow: none; color: rgba(255,255,255,0.4); }
+/* No .pk-sweep element needed anymore */
 .preview-line .redo-btn {
     margin-left: auto; flex-shrink: 0;
     padding: 4px 12px; background: transparent; border: 1px solid #2a2a2a;
@@ -1491,33 +1501,49 @@ function openPreview() {
             div.textContent = '♪  ♪  ♪';
         } else {
             div.className = 'preview-line';
-            // Build sweep words
-            line.words.forEach(function(word, wi) {
-                var outer = document.createElement('span');
-                outer.className = 'pk-word';
-                outer.id = 'pkw-' + li + '_' + wi;
-                outer.textContent = word.t;
-                // sweep child
-                var sweep = document.createElement('span');
-                sweep.className = 'pk-sweep';
-                sweep.textContent = word.t;
-                outer.appendChild(sweep);
-                div.appendChild(outer);
-                if (wi < line.words.length - 1) div.appendChild(document.createTextNode(' '));
-            });
+            // Line mode: just show text, highlight handled by p-active CSS
+            if (S.mode === 'line') {
+                var txt = document.createElement('span');
+                txt.style.cssText = 'flex:1;';
+                txt.textContent = line.text;
+                div.appendChild(txt);
+            } else {
+                // Word mode: build sweep words (single element, no duplicate text)
+                line.words.forEach(function(word, wi) {
+                    var outer = document.createElement('span');
+                    outer.className = 'pk-word';
+                    outer.id = 'pkw-' + li + '_' + wi;
+                    outer.textContent = word.t;
+                    div.appendChild(outer);
+                    if (wi < line.words.length - 1) div.appendChild(document.createTextNode(' '));
+                });
+            }
             // Redo button
             var redo = document.createElement('button');
             redo.className = 'redo-btn';
             redo.textContent = '↺ Redo';
             redo.onclick = (function(l) {
-                return function(e) {
-                    e.stopPropagation();
-                    redoLine(l);
-                };
+                return function(e) { e.stopPropagation(); redoLine(l); };
             })(li);
             div.appendChild(redo);
         }
         div.id = 'pl-' + li;
+
+        // Tap line = seek to that line's timestamp and play
+        div.addEventListener('click', (function(l) {
+            return function() {
+                var line = S.lyrics[l];
+                if (line && line.time !== null && player) {
+                    try {
+                        player.seekTo(line.time, true);
+                        player.playVideo();
+                        isPlaying = true;
+                        updatePlayBtn();
+                    } catch(e) {}
+                }
+            };
+        })(li));
+
         area.appendChild(div);
     });
 
@@ -1535,12 +1561,16 @@ function redoLine(li) {
     closePreview();
     var line = S.lyrics[li];
     if (!line || line.type !== 'lyric') return;
-    // Jump to this line, first word
     jumpTo(li, 0);
-    // Seek song to just before the line's first word timestamp
+    // Seek to 1.5s before line start so user hears the run-up
     var t = line.time;
     if (t !== null && player) {
-        try { player.seekTo(Math.max(0, t - 1.5), true); } catch(e) {}
+        try {
+            player.seekTo(Math.max(0, t - 1.5), true);
+            player.playVideo();
+            isPlaying = true;
+            updatePlayBtn();
+        } catch(e) {}
     }
 }
 
@@ -1577,36 +1607,34 @@ function startPreviewLoop() {
 
         // Update word sweeps
         S.lyrics.forEach(function(line, li) {
-            if (line.type !== 'lyric') return;
+            if (line.type !== 'lyric' || S.mode === 'line') return;
             line.words.forEach(function(word, wi) {
                 var el = document.getElementById('pkw-' + li + '_' + wi);
                 if (!el) return;
-                var sweep = el.querySelector('.pk-sweep');
-                if (!sweep) return;
-
                 if (word.s === null) return; // never tapped
 
+                var pct;
                 if (t < word.s) {
                     // upcoming
                     el.classList.remove('pk-past');
-                    sweep.style.width = '0%';
-                    el.style.color = '';
+                    pct = 0;
                 } else if (word.e !== null && t >= word.e) {
-                    // past
+                    // fully past — use class, no inline style needed
                     el.classList.add('pk-past');
-                    sweep.style.width = '100%';
+                    return;
                 } else if (word.e !== null) {
-                    // active — sweep
+                    // actively sweeping
                     el.classList.remove('pk-past');
                     var progress = (t - word.s) / (word.e - word.s);
-                    // ease in-out
                     var eased = progress < 0.5 ? 2*progress*progress : -1+(4-2*progress)*progress;
-                    sweep.style.width = (eased * 100).toFixed(1) + '%';
+                    pct = Math.min(100, eased * 100);
                 } else {
-                    // has start but no end — just light it up
+                    // stamped but no end time — light up fully
                     el.classList.remove('pk-past');
-                    sweep.style.width = t >= word.s ? '100%' : '0%';
+                    pct = t >= word.s ? 100 : 0;
                 }
+                // Single element gradient: white left of pct, dim right of pct
+                el.style.backgroundImage = 'linear-gradient(to right, #fff ' + pct.toFixed(1) + '%, rgba(255,255,255,0.2) ' + pct.toFixed(1) + '%)';
             });
         });
 
