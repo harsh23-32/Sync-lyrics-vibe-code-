@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>eLRC v2.12</title>
+<title>eLRC v2.16</title>
 <script src="https://www.youtube.com/iframe_api"></script>
 <style>
 :root {
@@ -324,6 +324,10 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 }
 .popup-done-btn:active { background: #ddd; }
 
+.wni-row { display:flex; align-items:center; gap:10px; background:#0d0d0d; border:1px solid #1e1e1e; border-radius:10px; padding:8px 12px; margin-bottom:6px; }
+.wni-word { font-size:0.9rem; font-weight:800; color:#fff; min-width:70px; flex-shrink:0; }
+.wni-time { font-size:0.7rem; font-family:var(--mono); color:#555; flex:1; }
+.wni-btns { display:flex; gap:5px; }
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
 </style>
@@ -1154,6 +1158,25 @@ function openReview() {
         body.innerHTML = '<div style="text-align:center;padding:40px;color:#444;font-size:0.9rem;">No split words found.<br>Long press a word while tagging to mark it for splitting.</div>';
     }
 
+    // Word timestamp nudge section
+    var tagged = [];
+    S.lyrics.forEach(function(line, li) {
+        if (line.type !== 'lyric') return;
+        line.words.forEach(function(word, wi) {
+            if (word.s !== null) tagged.push({ li: li, wi: wi, word: word });
+        });
+    });
+    if (tagged.length > 0) {
+        var sec = document.createElement('div');
+        sec.style.marginTop = '12px';
+        var secTitle = document.createElement('div');
+        secTitle.style.cssText = 'font-size:0.65rem;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#555;margin-bottom:10px;';
+        secTitle.textContent = 'Word Timestamps';
+        sec.appendChild(secTitle);
+        tagged.forEach(function(e) { sec.appendChild(buildWNIRow(e.li, e.wi, e.word)); });
+        body.appendChild(sec);
+    }
+
     document.getElementById('review-overlay').classList.add('open');
 }
 
@@ -1364,6 +1387,47 @@ function applyReviewAndClose() {
 
 function closeReview() {
     document.getElementById('review-overlay').classList.remove('open');
+}
+
+function buildWNIRow(li, wi, word) {
+    var row = document.createElement('div');
+    row.className = 'wni-row';
+    var wEl = document.createElement('div');
+    wEl.className = 'wni-word';
+    wEl.textContent = word.t;
+    var tEl = document.createElement('div');
+    tEl.className = 'wni-time';
+    tEl.id = 'wni-t-' + li + '_' + wi;
+    tEl.textContent = fmtWord(word.s);
+    var btns = document.createElement('div');
+    btns.className = 'wni-btns';
+    [-0.1, +0.1].forEach(function(d) {
+        var b = document.createElement('button');
+        b.className = 'nudge-btn';
+        b.textContent = d > 0 ? '+0.1' : '−0.1';
+        b.onclick = (function(l, w, delta) {
+            return function() {
+                var wd = S.lyrics[l].words[w];
+                if (wd.s === null) return;
+                wd.s = Math.max(0, wd.s + delta);
+                if (w === 0) S.lyrics[l].time = wd.s;
+                document.getElementById('wni-t-' + l + '_' + w).textContent = fmtWord(wd.s);
+                genLRC();
+            };
+        })(li, wi, d);
+        btns.appendChild(b);
+    });
+    var sk = document.createElement('button');
+    sk.className = 'sri-seek-btn';
+    sk.textContent = '▶';
+    sk.onclick = (function(t) {
+        return function() { if (player) try { player.seekTo(Math.max(0, t - 0.5), true); } catch(e) {} };
+    })(word.s);
+    btns.appendChild(sk);
+    row.appendChild(wEl);
+    row.appendChild(tEl);
+    row.appendChild(btns);
+    return row;
 }
 
 // ── Export ─────────────────────────────────────────────────
