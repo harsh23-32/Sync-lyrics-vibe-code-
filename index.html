@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>eLRC v2.17</title>
+<title>eLRC v2.18</title>
 <script src="https://www.youtube.com/iframe_api"></script>
 <style>
 :root {
@@ -393,6 +393,51 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 }
 .preview-line.music-preview.p-active { color: rgba(255,255,255,0.3); }
 
+/* BEAT VISUALIZER */
+.beat-bar {
+    position: fixed;
+    bottom: calc(130px + env(safe-area-inset-bottom));
+    left: 50%; transform: translateX(-50%);
+    width: calc(100% - 20px); max-width: 520px;
+    z-index: 49;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+}
+.beat-bar.visible { display: flex; }
+.beat-canvas-wrap {
+    background: #0a0a0a; border: 1px solid #1e1e1e;
+    border-radius: 16px; overflow: hidden;
+    height: 54px; position: relative;
+}
+#beat-canvas { width: 100%; height: 100%; display: block; }
+.beat-meta {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 4px;
+}
+.beat-bpm { font-size: 0.65rem; font-weight: 800; color: #555; font-family: var(--mono); }
+.beat-snap-toggle {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.65rem; font-weight: 800; color: #555; cursor: pointer;
+}
+.beat-snap-toggle input { display: none; }
+.snap-pill {
+    width: 30px; height: 16px; border-radius: 8px;
+    background: #222; border: 1px solid #333; position: relative;
+    transition: background 0.2s;
+}
+.snap-pill::after {
+    content: ''; position: absolute;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #555; top: 2px; left: 2px;
+    transition: left 0.2s, background 0.2s;
+}
+.beat-snap-toggle input:checked + .snap-pill { background: #003020; border-color: #00ff88; }
+.beat-snap-toggle input:checked + .snap-pill::after { left: 16px; background: #00ff88; }
+
+/* DOCK push up when beat bar visible */
+.dock { transition: bottom 0.3s; }
+
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
 </style>
@@ -416,6 +461,17 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
             <div id="status-pill">Waiting for YouTube API…</div>
         </div>
         <div class="yt-wrap"><div class="yt-box"><div id="yt-player"></div></div></div>
+        <div>
+            <div class="field-label">Audio File <span style="color:#00ff88;font-size:0.6rem;">for beat sync</span></div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <label style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 14px;font-size:0.8rem;color:var(--muted);cursor:pointer;display:block;text-align:center;" id="audio-label">
+                    📂 Upload MP3 / WAV
+                    <input type="file" id="audio-file" accept="audio/*" style="display:none;" onchange="loadAudioFile(this)">
+                </label>
+                <button class="btn" onclick="clearAudio()" id="clear-audio-btn" style="display:none;color:#ff4444;border-color:#3a1010;">✕</button>
+            </div>
+            <div id="audio-status" style="font-size:0.72rem;color:#555;margin-top:6px;text-align:center;display:none;"></div>
+        </div>
         <div>
             <div class="field-label">Lyrics</div>
             <textarea id="raw-input" placeholder="Paste lyrics here, one line per row…"></textarea>
@@ -473,6 +529,21 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
     <div style="text-align:center; padding:80px 30px; color:#1e1e1e;">
         <div style="font-size:2rem; margin-bottom:10px;">🎵</div>
         <div style="font-weight:700;">Open Menu to begin</div>
+    </div>
+</div>
+
+<!-- BEAT VISUALIZER -->
+<div class="beat-bar" id="beat-bar">
+    <div class="beat-canvas-wrap">
+        <canvas id="beat-canvas"></canvas>
+    </div>
+    <div class="beat-meta">
+        <span class="beat-bpm" id="beat-bpm-label">-- BPM</span>
+        <label class="beat-snap-toggle">
+            <input type="checkbox" id="snap-toggle" checked>
+            <div class="snap-pill"></div>
+            SNAP TO BEAT
+        </label>
     </div>
 </div>
 
@@ -560,6 +631,7 @@ function createPlayer(id) {
             onReady: function() {
                 setStatus('✅ Video loaded — press ▶ to play', '#00cc66');
                 startLoop();
+                watchPlayerForBeatSync();
             },
             onStateChange: function(e) {
                 isPlaying = (e.data === 1);
@@ -892,6 +964,7 @@ var tapLongFired = false;
 
 function tapPress(e) {
     e.preventDefault();
+    if (beatAudioCtx && beatAudioCtx.state === 'suspended') beatAudioCtx.resume();
     tapLongFired = false;
     tapLongTimer = setTimeout(function() {
         tapLongFired = true;
@@ -937,13 +1010,13 @@ function handleTap() {
     // WORD MODE — normal
     // Close previous word end time
     if (S.lastTapped !== null) {
-        S.lyrics[S.lastTapped.li].words[S.lastTapped.wi].e = t;
+        S.lyrics[S.lastTapped.li].words[S.lastTapped.wi].e = snapToNearestBeat(t);
         S.lastTapped = null;
     }
 
     var word = line.words[S.wi];
-    word.s = t;
-    if (S.wi === 0) line.time = t;
+    word.s = snapToNearestBeat(t);
+    if (S.wi === 0) line.time = word.s;
     S.lastTapped = { li: S.li, wi: S.wi };
     markPast(S.li, S.wi);
 
@@ -1705,6 +1778,303 @@ function updatePreviewBtn() {
     var hasAny = S.lyrics.some(function(l) { return l.time !== null; });
     btn.style.opacity = hasAny ? '' : '0.4';
     btn.style.pointerEvents = hasAny ? '' : 'none';
+}
+
+// ── BEAT ENGINE ───────────────────────────────────────────
+var beatAudioCtx = null;
+var beatAudioBuffer = null;
+var beatAudioSource = null;
+var beatTimes = [];        // array of beat timestamps in seconds
+var beatBpm = 0;
+var beatStartedAt = null;  // when audio source started (AudioContext.currentTime)
+var beatStartOffset = 0;   // offset within buffer when started
+var beatPlaying = false;
+var beatRafId = null;
+var beatPcm = null;        // Float32Array of mono PCM samples
+var beatSampleRate = 0;
+
+function loadAudioFile(input) {
+    var file = input.files[0];
+    if (!file) return;
+    var label = document.getElementById('audio-label');
+    var status = document.getElementById('audio-status');
+    var clearBtn = document.getElementById('clear-audio-btn');
+
+    label.innerHTML = '⏳ Analyzing…<input type="file" id="audio-file" accept="audio/*" style="display:none;" onchange="loadAudioFile(this)">';
+    status.style.display = 'block';
+    status.textContent = 'Decoding audio…';
+    status.style.color = '#555';
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        if (!beatAudioCtx) beatAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        beatAudioCtx.decodeAudioData(e.target.result, function(buffer) {
+            beatAudioBuffer = buffer;
+            beatSampleRate = buffer.sampleRate;
+
+            // Flatten to mono
+            var ch0 = buffer.getChannelData(0);
+            var ch1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
+            beatPcm = new Float32Array(ch0.length);
+            for (var i = 0; i < ch0.length; i++) {
+                beatPcm[i] = ch1 ? (ch0[i] + ch1[i]) * 0.5 : ch0[i];
+            }
+
+            status.textContent = 'Detecting beats…';
+            setTimeout(function() {
+                detectBeats();
+                label.innerHTML = '✅ ' + file.name.substring(0, 24) + (file.name.length > 24 ? '…' : '') +
+                    '<input type="file" id="audio-file" accept="audio/*" style="display:none;" onchange="loadAudioFile(this)">';
+                clearBtn.style.display = '';
+                status.textContent = beatBpm > 0 ? beatBpm.toFixed(1) + ' BPM detected — ' + beatTimes.length + ' beats' : 'BPM detected';
+                status.style.color = '#00ff88';
+                document.getElementById('beat-bar').classList.add('visible');
+                document.getElementById('beat-bpm-label').textContent = beatBpm.toFixed(1) + ' BPM';
+                startBeatVisualization();
+            }, 50);
+        }, function() {
+            status.textContent = '❌ Could not decode audio';
+            status.style.color = '#ff4444';
+            label.innerHTML = '📂 Upload MP3 / WAV<input type="file" id="audio-file" accept="audio/*" style="display:none;" onchange="loadAudioFile(this)">';
+        });
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function clearAudio() {
+    if (beatAudioSource) { try { beatAudioSource.stop(); } catch(e) {} beatAudioSource = null; }
+    beatAudioBuffer = null; beatPcm = null; beatTimes = []; beatBpm = 0; beatPlaying = false;
+    beatStartedAt = null;
+    cancelAnimationFrame(beatRafId);
+    document.getElementById('beat-bar').classList.remove('visible');
+    document.getElementById('clear-audio-btn').style.display = 'none';
+    document.getElementById('audio-status').style.display = 'none';
+    document.getElementById('audio-label').innerHTML = '📂 Upload MP3 / WAV<input type="file" id="audio-file" accept="audio/*" style="display:none;" onchange="loadAudioFile(this)">';
+    document.getElementById('beat-bpm-label').textContent = '-- BPM';
+}
+
+function detectBeats() {
+    // Energy-based onset detection with adaptive threshold
+    var sr = beatSampleRate;
+    var hopSize = Math.floor(sr * 0.01);   // 10ms hops
+    var winSize = Math.floor(sr * 0.05);   // 50ms window
+    var samples = beatPcm;
+    var energies = [];
+
+    for (var i = 0; i + winSize < samples.length; i += hopSize) {
+        var e = 0;
+        for (var j = i; j < i + winSize; j++) e += samples[j] * samples[j];
+        energies.push(e / winSize);
+    }
+
+    // Compute difference function (flux)
+    var flux = [];
+    for (var i = 1; i < energies.length; i++) {
+        var d = energies[i] - energies[i-1];
+        flux.push(d > 0 ? d : 0);
+    }
+
+    // Adaptive threshold — local mean * 1.5
+    var winFrames = 43; // ~430ms window
+    var onsets = [];
+    for (var i = winFrames; i < flux.length - winFrames; i++) {
+        var localMean = 0;
+        for (var j = i - winFrames; j < i + winFrames; j++) localMean += flux[j];
+        localMean /= (winFrames * 2);
+        if (flux[i] > localMean * 1.5 && flux[i] > flux[i-1] && flux[i] >= flux[i+1]) {
+            var t = (i * hopSize) / sr;
+            // Minimum gap between beats: 0.25s (240 BPM max)
+            if (onsets.length === 0 || t - onsets[onsets.length-1] > 0.25) {
+                onsets.push(t);
+            }
+        }
+    }
+
+    beatTimes = onsets;
+
+    // Estimate BPM from inter-beat intervals
+    if (onsets.length > 4) {
+        var ibis = [];
+        for (var i = 1; i < Math.min(onsets.length, 64); i++) ibis.push(onsets[i] - onsets[i-1]);
+        ibis.sort(function(a,b){return a-b;});
+        var median = ibis[Math.floor(ibis.length/2)];
+        beatBpm = 60 / median;
+        // Normalize to 60-180 BPM range
+        while (beatBpm > 180) beatBpm /= 2;
+        while (beatBpm < 60)  beatBpm *= 2;
+    }
+}
+
+function getBeatAudioTime() {
+    if (!beatPlaying || !beatAudioCtx || beatStartedAt === null) return null;
+    return beatStartOffset + (beatAudioCtx.currentTime - beatStartedAt);
+}
+
+function snapToNearestBeat(t) {
+    if (!document.getElementById('snap-toggle').checked) return t;
+    if (beatTimes.length === 0) return t;
+    // Find nearest beat within ±200ms
+    var best = null, bestDist = 0.2;
+    for (var i = 0; i < beatTimes.length; i++) {
+        var d = Math.abs(beatTimes[i] - t);
+        if (d < bestDist) { bestDist = d; best = beatTimes[i]; }
+    }
+    return best !== null ? best : t;
+}
+
+// Sync audio with YouTube player
+function syncBeatAudio() {
+    if (!beatAudioBuffer || !beatAudioCtx) return;
+    var ytTime = now();
+    if (ytTime <= 0) return;
+
+    if (beatAudioSource) { try { beatAudioSource.stop(); } catch(e) {} beatAudioSource = null; }
+
+    beatAudioSource = beatAudioCtx.createBufferSource();
+    beatAudioSource.buffer = beatAudioBuffer;
+    // Connect to a gain node at 0 — we don't want to hear it, just use for timing
+    var gain = beatAudioCtx.createGain();
+    gain.gain.value = 0;
+    beatAudioSource.connect(gain);
+    gain.connect(beatAudioCtx.destination);
+
+    var offset = Math.max(0, ytTime);
+    beatStartOffset = offset;
+    beatStartedAt = beatAudioCtx.currentTime;
+    beatPlaying = true;
+    beatAudioSource.start(0, offset);
+    beatAudioSource.onended = function() { beatPlaying = false; };
+}
+
+// ── BEAT VISUALIZATION ────────────────────────────────────
+function startBeatVisualization() {
+    cancelAnimationFrame(beatRafId);
+    var canvas = document.getElementById('beat-canvas');
+    var wrap = canvas.parentElement;
+
+    function resize() {
+        canvas.width = wrap.offsetWidth * window.devicePixelRatio;
+        canvas.height = wrap.offsetHeight * window.devicePixelRatio;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    var ctx = canvas.getContext('2d');
+    var lastBeatIdx = -1;
+    var pulseAmt = 0;
+
+    (function frame() {
+        beatRafId = requestAnimationFrame(frame);
+        var W = canvas.width, H = canvas.height;
+        var dpr = window.devicePixelRatio || 1;
+        ctx.clearRect(0, 0, W, H);
+
+        // Get current time — prefer beat audio clock, fall back to YouTube
+        var t = getBeatAudioTime();
+        if (t === null) t = now();
+        if (t < 0) t = 0;
+
+        var duration = beatAudioBuffer ? beatAudioBuffer.duration : 0;
+        if (duration <= 0) return;
+
+        // ── Draw waveform (downsampled) ──
+        if (beatPcm) {
+            var viewDur = 8; // seconds visible
+            var halfDur = viewDur / 2;
+            var startSec = Math.max(0, t - halfDur);
+            var endSec = Math.min(duration, t + halfDur);
+            var startSamp = Math.floor(startSec * beatSampleRate);
+            var endSamp = Math.floor(endSec * beatSampleRate);
+            var totalSamps = endSamp - startSamp;
+            var cols = Math.floor(W);
+            var sampsPerCol = Math.max(1, Math.floor(totalSamps / cols));
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+            ctx.lineWidth = 1;
+            for (var col = 0; col < cols; col++) {
+                var s0 = startSamp + col * sampsPerCol;
+                var s1 = Math.min(endSamp, s0 + sampsPerCol);
+                var peak = 0;
+                for (var s = s0; s < s1; s++) {
+                    var v = Math.abs(beatPcm[s]);
+                    if (v > peak) peak = v;
+                }
+                var h = peak * (H * 0.85);
+                var cy = H / 2;
+                ctx.beginPath();
+                ctx.moveTo(col, cy - h);
+                ctx.lineTo(col, cy + h);
+                ctx.stroke();
+            }
+        }
+
+        // ── Draw beat markers ──
+        var viewDur = 8;
+        var halfDur = viewDur / 2;
+        for (var i = 0; i < beatTimes.length; i++) {
+            var bt = beatTimes[i];
+            if (bt < t - halfDur || bt > t + halfDur) continue;
+            var x = ((bt - (t - halfDur)) / viewDur) * W;
+            var isPast = bt < t;
+            var isNear = Math.abs(bt - t) < 0.08; // within 80ms = "now"
+
+            if (isNear) {
+                // Pulse glow
+                ctx.strokeStyle = 'rgba(0,255,136,0.9)';
+                ctx.lineWidth = 2 * dpr;
+                pulseAmt = 1.0;
+                if (lastBeatIdx !== i) {
+                    lastBeatIdx = i;
+                    if (navigator.vibrate) navigator.vibrate(10);
+                }
+            } else if (isPast) {
+                ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+                ctx.lineWidth = 1;
+            } else {
+                ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+                ctx.lineWidth = 1;
+            }
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, H);
+            ctx.stroke();
+        }
+
+        // ── Playhead line ──
+        var px = (halfDur / viewDur) * W;
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, H);
+        ctx.stroke();
+
+        // ── Pulse overlay ──
+        if (pulseAmt > 0) {
+            ctx.fillStyle = 'rgba(0,255,136,' + (pulseAmt * 0.12) + ')';
+            ctx.fillRect(0, 0, W, H);
+            pulseAmt = Math.max(0, pulseAmt - 0.06);
+        }
+    })();
+}
+
+// Watch YouTube player state to sync beat audio
+var beatSyncInterval = null;
+function watchPlayerForBeatSync() {
+    if (beatSyncInterval) clearInterval(beatSyncInterval);
+    beatSyncInterval = setInterval(function() {
+        if (!beatAudioBuffer || !beatAudioCtx) return;
+        var state = player && typeof player.getPlayerState === 'function' ? player.getPlayerState() : -1;
+        if (state === 1 && !beatPlaying) {
+            // YouTube started playing, sync beat audio
+            if (beatAudioCtx.state === 'suspended') beatAudioCtx.resume();
+            syncBeatAudio();
+        } else if (state !== 1 && beatPlaying) {
+            // YouTube paused
+            if (beatAudioSource) { try { beatAudioSource.stop(); } catch(e) {} beatAudioSource = null; }
+            beatPlaying = false;
+        }
+    }, 300);
 }
 
 // ── Keyboard ───────────────────────────────────────────────
