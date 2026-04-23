@@ -147,12 +147,22 @@ textarea::placeholder { color: var(--muted); }
 /* WORD SPANS */
 .word-span {
     display: inline; border-radius: 5px; padding: 1px 2px;
-    color: rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.2);
     cursor: pointer; position: relative;
     -webkit-user-select: none; user-select: none;
+    transition: color 0.12s, text-shadow 0.12s;
 }
-.word-span.past { color: rgba(255,255,255,0.4); }
-.word-span.now  { color: #fff; background: rgba(255,255,255,0.14); padding: 2px 6px; border-radius: 6px; }
+/* Timed words: full brightness — the "trail" stays lit */
+.word-span.past {
+    color: rgba(255,255,255,1);
+}
+/* Active word: bright + glowing underline to mark the playhead */
+.word-span.now {
+    color: #fff;
+    border-bottom: 2px solid rgba(255,255,255,0.85);
+    padding-bottom: 0px;
+    text-shadow: 0 0 12px rgba(255,255,255,0.55);
+}
 
 /* SPLIT WORD STYLING */
 .word-span.split-marked {
@@ -160,9 +170,14 @@ textarea::placeholder { color: var(--muted); }
     color: var(--split);
     padding-bottom: 0px;
 }
-.word-span.split-marked.now {
-    background: rgba(255,170,0,0.15);
+.word-span.split-marked.past {
     color: var(--split);
+    opacity: 0.85;
+}
+.word-span.split-marked.now {
+    color: var(--split);
+    border-bottom: 2px solid var(--split);
+    text-shadow: 0 0 12px rgba(255,170,0,0.6);
 }
 /* Split progress dots shown in ctx bar */
 .split-dots { display: inline-flex; gap: 3px; align-items: center; margin-left: 4px; }
@@ -229,15 +244,15 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 .tap-btn.split-mode { background: #1a1200; border-color: #3a2800; color: var(--split); }
 .tap-btn.split-mode:active { background: var(--split); color: #000; border-color: var(--split); }
 
-/* MUSIC BUTTON — becomes stamp button in split mode */
+/* CUT BUTTON — always a cut/stamp button */
 .music-btn {
-    flex: 1; height: 52px; background: #081208; border: 1.5px solid #183018;
-    border-radius: 26px; color: #00bb55; font-size: 0.68rem; font-weight: 800;
+    flex: 1; height: 52px; background: #1a1000; border: 1.5px solid #3a2200;
+    border-radius: 26px; color: var(--split); font-size: 0.68rem; font-weight: 800;
     cursor: pointer; font-family: var(--font);
     touch-action: manipulation; user-select: none; -webkit-user-select: none;
     transition: background 0.1s, border-color 0.1s, color 0.1s;
 }
-.music-btn:active { background: #00bb55; color: #000; }
+.music-btn:active { background: var(--split); color: #000; }
 .music-btn.split-stamp { background: #1a1000; border-color: #3a2200; color: var(--split); }
 .music-btn.split-stamp:active { background: var(--split); color: #000; }
 
@@ -561,10 +576,10 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
         <button class="seek-btn" onclick="seekBy(-5)">−5s</button>
         <button class="tap-btn" id="tap-btn"
             ontouchstart="tapPress(event)" ontouchend="tapRelease(event)"
-            onmousedown="tapPress(event)" onmouseup="tapRelease(event)">TAP</button>
+            onmousedown="tapPress(event)" onmouseup="tapRelease(event)">TAP  <span style="font-size:0.55rem;opacity:0.4;font-weight:600">hold=♪</span></button>
         <button class="music-btn" id="music-btn"
             ontouchstart="musicPress(event)" ontouchend="musicRelease(event)"
-            onmousedown="musicPress(event)" onmouseup="musicRelease(event)">♪ MUSIC</button>
+            onmousedown="musicPress(event)" onmouseup="musicRelease(event)">✂ CUT</button>
         <button class="seek-btn" onclick="seekBy(5)">+5s</button>
         <button class="speed-btn" id="speed-btn" onclick="cycleSpeed()">1.0×</button>
     </div>
@@ -838,6 +853,7 @@ function buildWordSpans(container, line, li) {
         var sp = document.createElement('span');
         sp.id = 'W' + li + '_' + wi;
         var cls = 'word-span';
+        // Timed words always show as .past (bright trail) across all lines
         if (w.s !== null) cls += ' past';
         if (w.splits && w.splits.length > 0) cls += ' split-marked';
         sp.className = cls;
@@ -931,14 +947,13 @@ function updateDockForSplit(active) {
     if (active) {
         tapBtn.classList.add('split-mode');
         musicBtn.classList.add('split-stamp');
-        musicBtn.textContent = '✂ STAMP';
+        musicBtn.textContent = '✂ CUT';
         musicBtn.disabled = false;
         musicBtn.style.opacity = '';
     } else {
         tapBtn.classList.remove('split-mode');
         musicBtn.classList.remove('split-stamp');
-        musicBtn.textContent = '♪ MUSIC';
-
+        musicBtn.textContent = '✂ CUT';
     }
 }
 
@@ -951,6 +966,7 @@ function setNow(li, wi) {
         if (id) {
             var parts = id.slice(1).split('_');
             var pli = parseInt(parts[0]), pwi = parseInt(parts[1]);
+            // Restore .past on any timed word (trail persists across all lines)
             if (S.lyrics[pli] && S.lyrics[pli].words[pwi] && S.lyrics[pli].words[pwi].s !== null) {
                 el.classList.add('past');
             }
@@ -978,10 +994,8 @@ function tapPress(e) {
     tapLongFired = false;
     tapLongTimer = setTimeout(function() {
         tapLongFired = true;
-        // Long press on tap = mark current word as split
-        if (S.mode === 'word' && S.li < S.lyrics.length && S.lyrics[S.li].type === 'lyric') {
-            toggleSplitMark(S.li, S.wi);
-        }
+        // Long press on TAP = insert a music/instrumental timestamp
+        handleMusic();
     }, 500);
 }
 
@@ -1013,6 +1027,7 @@ function handleTap() {
         updateDockForSplit(false);
         markPast(S.li, S.wi);
         S.lastTapped = null;
+        if (navigator.vibrate) navigator.vibrate(10);
         moveToNextLine_word();
         genLRC(); updateCtx(); return;
     }
@@ -1028,6 +1043,7 @@ function handleTap() {
     word.s = snapToNearestBeat(t);
     if (S.wi === 0) line.time = word.s;
     S.lastTapped = { li: S.li, wi: S.wi };
+    if (navigator.vibrate) navigator.vibrate(10);
     markPast(S.li, S.wi);
 
     if (S.wi < line.words.length - 1) {
@@ -1099,14 +1115,10 @@ var musicLongFired = false;
 function musicPress(e) {
     e.preventDefault();
     musicLongFired = false;
-    musicLongTimer = setTimeout(function() {
-        musicLongFired = true;
-    }, 500);
 }
 
 function musicRelease(e) {
     e.preventDefault();
-    clearTimeout(musicLongTimer);
     if (!musicLongFired) handleMusic();
 }
 
@@ -1162,8 +1174,10 @@ function handleSplitStamp() {
 
     splitState.partIdx++;
 
-    // Keep music btn showing ✂ STAMP always — TAP is the only way to advance
-    document.getElementById('music-btn').textContent = '✂ STAMP';
+    if (navigator.vibrate) navigator.vibrate(10);
+
+    // Keep cut btn showing ✂ CUT always — TAP is the only way to advance
+    document.getElementById('music-btn').textContent = '✂ CUT';
     document.getElementById('music-btn').style.color = '';
 
     updateCtx();
@@ -1172,9 +1186,9 @@ function handleSplitStamp() {
 
 // ── Jump to exact line AND word ────────────────────────────
 function jumpTo(li, wi) {
-    // Clear every word span across all lines first
+    // Clear every word span's now/past across all lines first
     document.querySelectorAll('.word-span').forEach(function(el) {
-        el.classList.remove('now');
+        el.classList.remove('now', 'past');
     });
     _prevNowId = null;
 
@@ -1183,16 +1197,31 @@ function jumpTo(li, wi) {
     S.lastTapped = null;
     splitState = null; updateDockForSplit(false);
 
-    // Clear timestamps for words AT and AFTER wi in the target line
+    // Non-destructive: only wipe the selected word's timestamp (not subsequent words)
     if (S.mode === 'word' && S.lyrics[li] && S.lyrics[li].type === 'lyric') {
-        S.lyrics[li].words.forEach(function(w, i) {
-            if (i >= wi) {
-                w.s = null; w.e = null;
-                if (w.splits) w.splits.forEach(function(p) { p.s = null; p.e = null; });
+        var targetWord = S.lyrics[li].words[wi];
+        var clearedTime = targetWord.s; // remember what we're clearing
+        targetWord.s = null; targetWord.e = null;
+        if (targetWord.splits) targetWord.splits.forEach(function(p) { p.s = null; p.e = null; });
+
+        // Also wipe line.time if this was word 0 (line anchor)
+        if (wi === 0) S.lyrics[li].time = null;
+
+        // Conflict check: if following words have timestamps BEFORE the cleared word's time,
+        // they need to be wiped too (cascade forward only if there's an ordering conflict).
+        // We walk forward and clear any word whose timestamp <= clearedTime since those
+        // are now stale relative to where we're about to re-stamp.
+        if (clearedTime !== null) {
+            for (var i = wi + 1; i < S.lyrics[li].words.length; i++) {
+                var fw = S.lyrics[li].words[i];
+                if (fw.s !== null && fw.s <= clearedTime) {
+                    fw.s = null; fw.e = null;
+                    if (fw.splits) fw.splits.forEach(function(p) { p.s = null; p.e = null; });
+                } else {
+                    break; // once we find a word stamped AFTER clearedTime, stop cascading
+                }
             }
-        });
-        // Reset line.time only if first word's stamp was the line's time anchor
-        // But keep it so preview still works — redoLine saves it before calling jumpTo
+        }
     }
 
     // Update line active classes
@@ -1200,16 +1229,24 @@ function jumpTo(li, wi) {
         el.classList.toggle('active', i === S.li);
     });
 
-    // Re-apply past/now to target line's words
-    if (S.mode === 'word' && S.lyrics[li] && S.lyrics[li].type === 'lyric') {
-        S.lyrics[li].words.forEach(function(w, i) {
-            var sp = document.getElementById('W' + li + '_' + i);
-            if (!sp) return;
-            sp.classList.remove('now', 'past');
-            if (i < wi && w.s !== null) sp.classList.add('past');
-            else if (i === wi) { sp.classList.add('now'); _prevNowId = 'W' + li + '_' + wi; }
+    // Re-apply past/now across ALL lines (trail rebuild)
+    if (S.mode === 'word') {
+        S.lyrics.forEach(function(line, lineIdx) {
+            if (line.type !== 'lyric') return;
+            line.words.forEach(function(w, wordIdx) {
+                var sp = document.getElementById('W' + lineIdx + '_' + wordIdx);
+                if (!sp) return;
+                sp.classList.remove('now', 'past');
+                if (lineIdx === li && wordIdx === wi) {
+                    sp.classList.add('now');
+                    _prevNowId = 'W' + li + '_' + wi;
+                } else if (w.s !== null) {
+                    sp.classList.add('past');
+                }
+            });
         });
-        if (S.lyrics[li].words[wi] && S.lyrics[li].words[wi].splits && S.lyrics[li].words[wi].splits.length > 0) {
+        if (S.lyrics[li] && S.lyrics[li].words[wi] &&
+            S.lyrics[li].words[wi].splits && S.lyrics[li].words[wi].splits.length > 0) {
             activateSplitState(li, wi);
         }
     }
@@ -1748,18 +1785,19 @@ function startPreviewLoop() {
                     var fill = el.querySelector('.pk-fill');
                     if (!fill) return;
 
-                    if (word.s === null) { fill.style.width = '0%'; return; }
-                    if (t < word.s)      { fill.style.width = '0%'; return; }
+                    // Non-active line: always no fill — no ghost highlights
+                    if (li !== activeLi) { fill.style.width = '0%'; return; }
 
+                    // Word not yet started, or no timestamp — no fill
+                    if (word.s === null || t < word.s) { fill.style.width = '0%'; return; }
+
+                    // Word fully passed (has end time and we're past it)
                     if (word.e !== null && t >= word.e) {
-                        if (li !== activeLi) {
-                            fill.style.width = '0%';
-                        } else {
-                            fill.style.width = '100%';
-                        }
+                        fill.style.width = '100%';
                         return;
                     }
 
+                    // Word in progress — sweep between s and e
                     if (word.e !== null && word.e > word.s) {
                         var progress = (t - word.s) / (word.e - word.s);
                         var eased = progress < 0.5
@@ -1767,6 +1805,7 @@ function startPreviewLoop() {
                             : -1 + (4 - 2 * progress) * progress;
                         fill.style.width = Math.min(100, Math.max(0, eased * 100)).toFixed(1) + '%';
                     } else {
+                        // No end time yet — word is active, show full
                         fill.style.width = '100%';
                     }
                 });
