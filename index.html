@@ -1046,6 +1046,9 @@ function handleTap() {
     if (navigator.vibrate) navigator.vibrate(10);
     markPast(S.li, S.wi);
 
+    // Cascade: wipe any following words whose timestamps are now out-of-order
+    cascadeConflicts(S.li, S.wi, word.s);
+
     if (S.wi < line.words.length - 1) {
         S.wi++;
         setNow(S.li, S.wi);
@@ -1122,22 +1125,45 @@ function musicRelease(e) {
     if (!musicLongFired) handleMusic();
 }
 
-// ── MUSIC / SPLIT-STAMP ────────────────────────────────────
+// ── CUT / SPLIT-STAMP ─────────────────────────────────────
+// First press on an unmarked word: auto-mark it + stamp part 1 immediately.
+// Subsequent presses (splitState active): stamp next part.
+// TAP closes the word and advances to the next.
+// Long-press TAP: insert a music/instrumental line (unchanged).
 function handleMusic() {
-    // If in split mode, this button = stamp next part
+    var line = S.lyrics[S.li];
+
+    // If we're already in split mode for the current word → stamp next part
     if (splitState && splitState.li === S.li && splitState.wi === S.wi) {
         handleSplitStamp(); return;
     }
 
-    var t = now();
-    // FIX: close last tapped word's end time before inserting music line
-    if (S.mode === 'word' && S.lastTapped !== null) {
-        S.lyrics[S.lastTapped.li].words[S.lastTapped.wi].e = t;
-        S.lastTapped = null;
+    // Must be in word mode on a lyric line to cut
+    if (S.mode !== 'word' || !line || line.type !== 'lyric') {
+        // Fallback: insert a music/instrumental timestamp (original behaviour)
+        var t0 = now();
+        if (S.lastTapped !== null) {
+            S.lyrics[S.lastTapped.li].words[S.lastTapped.wi].e = t0;
+            S.lastTapped = null;
+        }
+        S.lyrics.splice(S.li, 0, { type: 'music', text: '', time: t0, words: [] });
+        S.li++; _prevNowId = null;
+        renderAll(); genLRC();
+        return;
     }
-    S.lyrics.splice(S.li, 0, { type: 'music', text: '', time: t, words: [] });
-    S.li++; _prevNowId = null;
-    renderAll(); genLRC();
+
+    // Auto-mark the current word as split if not already marked
+    var word = line.words[S.wi];
+    if (!word.splits || word.splits.length === 0) {
+        word.splits = [{ text: word.t, s: null }, { text: '', s: null }];
+        var sp = document.getElementById('W' + S.li + '_' + S.wi);
+        if (sp) sp.classList.add('split-marked');
+        if (navigator.vibrate) navigator.vibrate(30);
+    }
+
+    // Activate split state for current word then immediately fire the first stamp
+    activateSplitState(S.li, S.wi);
+    handleSplitStamp();
 }
 
 function deleteMusicLine(i) {
@@ -1165,6 +1191,8 @@ function handleSplitStamp() {
     if (splitState.partIdx === 0) {
         word.s = t;
         if (splitState.wi === 0) S.lyrics[splitState.li].time = t;
+        // Cascade conflicts from the word level
+        cascadeConflicts(splitState.li, splitState.wi, t);
     }
 
     // Close end of previous part
@@ -1185,58 +1213,29 @@ function handleSplitStamp() {
 }
 
 // ── Jump to exact line AND word ────────────────────────────
+// Purely non-destructive: never wipes timestamps.
+// Words keep .past until a new TAP overwrites them.
 function jumpTo(li, wi) {
-    // Clear every word span's now/past across all lines first
-    document.querySelectorAll('.word-span').forEach(function(el) {
-        el.classList.remove('now', 'past');
-    });
     _prevNowId = null;
-
-    var prevLi = S.li;
     S.li = li; S.wi = wi;
     S.lastTapped = null;
     splitState = null; updateDockForSplit(false);
-
-    // Non-destructive: only wipe the selected word's timestamp (not subsequent words)
-    if (S.mode === 'word' && S.lyrics[li] && S.lyrics[li].type === 'lyric') {
-        var targetWord = S.lyrics[li].words[wi];
-        var clearedTime = targetWord.s; // remember what we're clearing
-        targetWord.s = null; targetWord.e = null;
-        if (targetWord.splits) targetWord.splits.forEach(function(p) { p.s = null; p.e = null; });
-
-        // Also wipe line.time if this was word 0 (line anchor)
-        if (wi === 0) S.lyrics[li].time = null;
-
-        // Conflict check: if following words have timestamps BEFORE the cleared word's time,
-        // they need to be wiped too (cascade forward only if there's an ordering conflict).
-        // We walk forward and clear any word whose timestamp <= clearedTime since those
-        // are now stale relative to where we're about to re-stamp.
-        if (clearedTime !== null) {
-            for (var i = wi + 1; i < S.lyrics[li].words.length; i++) {
-                var fw = S.lyrics[li].words[i];
-                if (fw.s !== null && fw.s <= clearedTime) {
-                    fw.s = null; fw.e = null;
-                    if (fw.splits) fw.splits.forEach(function(p) { p.s = null; p.e = null; });
-                } else {
-                    break; // once we find a word stamped AFTER clearedTime, stop cascading
-                }
-            }
-        }
-    }
 
     // Update line active classes
     document.querySelectorAll('.lyric-line').forEach(function(el, i) {
         el.classList.toggle('active', i === S.li);
     });
 
-    // Re-apply past/now across ALL lines (trail rebuild)
+    // Rebuild trail across ALL lines from data — no timestamp mutation
     if (S.mode === 'word') {
+        document.querySelectorAll('.word-span').forEach(function(el) {
+            el.classList.remove('now', 'past');
+        });
         S.lyrics.forEach(function(line, lineIdx) {
             if (line.type !== 'lyric') return;
             line.words.forEach(function(w, wordIdx) {
                 var sp = document.getElementById('W' + lineIdx + '_' + wordIdx);
                 if (!sp) return;
-                sp.classList.remove('now', 'past');
                 if (lineIdx === li && wordIdx === wi) {
                     sp.classList.add('now');
                     _prevNowId = 'W' + li + '_' + wi;
@@ -1245,6 +1244,7 @@ function jumpTo(li, wi) {
                 }
             });
         });
+        // Activate split state if word is already split-marked
         if (S.lyrics[li] && S.lyrics[li].words[wi] &&
             S.lyrics[li].words[wi].splits && S.lyrics[li].words[wi].splits.length > 0) {
             activateSplitState(li, wi);
@@ -1252,6 +1252,27 @@ function jumpTo(li, wi) {
     }
 
     scrollActive(); updateCtx(); genLRC();
+}
+
+// ── Chronological conflict cascade ─────────────────────────
+// Called after stamping Word B with time T.
+// Walks forward: if Word X.s <= T, wipe it and dim it (.now moves there).
+// Stops as soon as a word with X.s > T is found — those stay intact.
+function cascadeConflicts(li, wi, newTime) {
+    var line = S.lyrics[li];
+    if (!line || line.type !== 'lyric') return;
+    for (var i = wi + 1; i < line.words.length; i++) {
+        var fw = line.words[i];
+        if (fw.s !== null && fw.s <= newTime) {
+            // This word is now out-of-order — wipe it
+            fw.s = null; fw.e = null;
+            if (fw.splits) fw.splits.forEach(function(p) { p.s = null; p.e = null; });
+            var sp = document.getElementById('W' + li + '_' + i);
+            if (sp) { sp.classList.remove('past', 'now'); }
+        } else {
+            break; // everything beyond this is still valid
+        }
+    }
 }
 
 function scrollActive() {
@@ -1698,11 +1719,15 @@ function closePreview() {
 function redoLine(li) {
     var line = S.lyrics[li];
     if (!line || line.type !== 'lyric') return;
-    // Save timestamp before anything changes
     var seekTo = line.time !== null ? Math.max(0, line.time - 1.5) : null;
+    // Explicitly wipe all timestamps for this line (jumpTo is now non-destructive)
+    line.time = null;
+    line.words.forEach(function(w) {
+        w.s = null; w.e = null;
+        if (w.splits) w.splits.forEach(function(p) { p.s = null; p.e = null; });
+    });
     closePreview();
     jumpTo(li, 0);
-    // Small delay so player isn't blocked by overlay transition
     setTimeout(function() {
         if (seekTo !== null && player) {
             try {
