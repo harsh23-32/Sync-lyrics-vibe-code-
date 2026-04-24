@@ -16,12 +16,6 @@
     --split: #ffaa00;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --mono: 'Courier New', monospace;
-    --beat-flash: 0;
-}
-#beat-backdrop {
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background: rgba(0,255,136,0);
-    transition: background 0.06s linear;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; margin: 0; padding: 0; }
 body {
@@ -32,9 +26,11 @@ body {
 /* TOPBAR */
 .topbar {
     height: 56px; display: flex; align-items: center; justify-content: space-between;
-    padding: 0 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    padding: 0 16px; flex-shrink: 0;
+    background: rgba(15, 15, 15, 0.4);
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    background: rgba(0,0,0,0.75);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    position: fixed; top: 0; left: 0; right: 0; z-index: 2000;
 }
 .time-disp { font-family: var(--mono); font-size: 1rem; font-weight: 700; color: #fff; letter-spacing: 1px; }
 
@@ -122,8 +118,8 @@ textarea::placeholder { color: var(--muted); }
 
 /* LYRICS */
 .lyrics-area {
-    flex: 1; overflow-y: auto; padding: 50px 0 380px;
-    -webkit-overflow-scrolling: touch;
+    flex: 1; overflow-y: auto; padding: 106px 0 380px;
+    -webkit-overflow-scrolling: touch; z-index: 1; position: relative;
 }
 .lyric-line {
     padding: 10px 24px; font-size: 1.4rem; font-weight: 700;
@@ -158,7 +154,7 @@ textarea::placeholder { color: var(--muted); }
     color: rgba(255,255,255,0.2);
     cursor: pointer; position: relative;
     -webkit-user-select: none; user-select: none;
-    transition: color 0.12s, text-shadow 0.12s, transform 0.1s;
+    transition: color 0.12s, text-shadow 0.12s;
 }
 /* Timed words: full brightness — the "trail" stays lit */
 .word-span.past {
@@ -170,9 +166,6 @@ textarea::placeholder { color: var(--muted); }
     border-bottom: 2px solid rgba(255,255,255,0.85);
     padding-bottom: 0px;
     text-shadow: 0 0 12px rgba(255,255,255,0.55);
-    display: inline-block;
-    transform: scale(1.1);
-    transition: transform 0.1s cubic-bezier(0.34,1.56,0.64,1), color 0.12s, text-shadow 0.12s;
 }
 
 /* SPLIT WORD STYLING */
@@ -214,7 +207,8 @@ textarea::placeholder { color: var(--muted); }
 .dock {
     position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
     width: calc(100% - 20px); max-width: 520px;
-    background: rgba(17,17,17,0.82); border: 1px solid #2a2a2a; border-radius: 32px;
+    background: rgba(15, 15, 15, 0.4); border: 1px solid #2a2a2a; border-radius: 32px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     padding: 12px; display: flex; flex-direction: column; gap: 10px;
     z-index: 50; box-shadow: 0 8px 40px rgba(0,0,0,0.95);
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
@@ -472,8 +466,6 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 <body>
 
 <div class="drawer-overlay" id="overlay" onclick="closeDrawer()"></div>
-
-<div id="beat-backdrop"></div>
 
 <div class="drawer" id="drawer">
     <div class="drawer-head">
@@ -1009,7 +1001,9 @@ function tapPress(e) {
     tapLongTimer = setTimeout(function() {
         tapLongFired = true;
         // Long press on TAP = insert a music/instrumental timestamp
-        handleMusic();
+        S.lyrics.splice(S.li, 0, { type: 'music', text: '', time: now(), words: [] });
+        if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+        renderAll(); genLRC();
     }, 500);
 }
 
@@ -1022,6 +1016,7 @@ function tapRelease(e) {
 // ── TAP ────────────────────────────────────────────────────
 function handleTap() {
     if (!S.lyrics.length || S.li >= S.lyrics.length) return;
+    renderAll();
     var t    = now();
     var line = S.lyrics[S.li];
 
@@ -1041,6 +1036,8 @@ function handleTap() {
         updateDockForSplit(false);
         markPast(S.li, S.wi);
         S.lastTapped = null;
+        // VINYL: restore normal 1.0x speed now that the split word is done
+        vinylRestore();
         if (navigator.vibrate) navigator.vibrate(10);
         moveToNextLine_word();
         genLRC(); updateCtx(); return;
@@ -1155,7 +1152,10 @@ function handleMusic() {
     // Must be in word mode on a lyric line to cut
     if (S.mode !== 'word' || !line || line.type !== 'lyric') {
         // Fallback: insert a music/instrumental timestamp (original behaviour)
+        // Guard: need lyrics loaded AND a real playback position
+        if (!S.lyrics.length || S.li >= S.lyrics.length) return;
         var t0 = now();
+        if (t0 <= 0) return; // no video playing — don't insert a blank timestamp
         if (S.lastTapped !== null) {
             S.lyrics[S.lastTapped.li].words[S.lastTapped.wi].e = t0;
             S.lastTapped = null;
@@ -1177,6 +1177,9 @@ function handleMusic() {
 
     // Activate split state for current word then immediately fire the first stamp
     activateSplitState(S.li, S.wi);
+    // VINYL: slow down uploaded audio to 0.5x with pitch drop for syllable clarity
+    vinylSlowDown();
+    renderAll();
     handleSplitStamp();
 }
 
@@ -1190,6 +1193,7 @@ function deleteMusicLine(i) {
 
 function handleSplitStamp() {
     if (!splitState) return;
+    renderAll();
     var t    = now();
     var word = S.lyrics[splitState.li].words[splitState.wi];
 
@@ -1877,6 +1881,12 @@ var beatRafId = null;
 var beatPcm = null;        // Float32Array of mono PCM samples
 var beatSampleRate = 0;
 
+// ── VINYL SLOWDOWN ─────────────────────────────────────────
+// NOTE: preservesPitch / pitch-dropping works ONLY on the uploaded audio file
+// (beatAudioSource / vinylSource). The YouTube iframe player has no API for
+// disabling pitch preservation — this effect cannot be applied to it.
+var vinylSource = null;   // separate audible source used only during syllable stamping
+
 function loadAudioFile(input) {
     var file = input.files[0];
     if (!file) return;
@@ -2031,6 +2041,45 @@ function syncBeatAudio() {
 }
 
 // ── BEAT VISUALIZATION ────────────────────────────────────
+
+// ── VINYL SLOWDOWN HELPERS ────────────────────────────────
+// Called on CUT: spawns an audible 0.5× source so the pitch drops ("vinyl" effect).
+// Only works on the uploaded audio file — YouTube iframe has no pitch-disable API.
+function vinylSlowDown() {
+    if (!beatAudioBuffer || !beatAudioCtx) return;
+    var t = getBeatAudioTime();
+    if (t === null) t = now();
+    if (t <= 0) return;
+
+    // Tear down any previous vinyl source
+    if (vinylSource) { try { vinylSource.stop(); } catch(e) {} vinylSource = null; }
+
+    vinylSource = beatAudioCtx.createBufferSource();
+    vinylSource.buffer = beatAudioBuffer;
+
+    // Drop to half speed — allow pitch to fall naturally (the "vinyl" effect)
+    vinylSource.playbackRate.value = 0.5;
+    // Disable pitch preservation so the voice deepens instead of staying robotic
+    if ('preservesPitch' in vinylSource) vinylSource.preservesPitch = false;
+    else if ('mozPreservesPitch' in vinylSource) vinylSource.mozPreservesPitch = false;
+
+    vinylSource.connect(beatAudioCtx.destination);
+    vinylSource.start(0, Math.max(0, t));
+    vinylSource.onended = function() { vinylSource = null; };
+}
+
+// Called on TAP: stops the slow vinyl source and restores normal beat-sync playback.
+function vinylRestore() {
+    if (vinylSource) {
+        try { vinylSource.stop(); } catch(e) {}
+        vinylSource = null;
+    }
+    // Re-sync the silent beat-timing source at normal speed
+    if (beatAudioBuffer && beatAudioCtx && beatPlaying) {
+        syncBeatAudio();
+    }
+}
+
 function startBeatVisualization() {
     cancelAnimationFrame(beatRafId);
     var canvas = document.getElementById('beat-canvas');
@@ -2109,13 +2158,7 @@ function startBeatVisualization() {
                 pulseAmt = 1.0;
                 if (lastBeatIdx !== i) {
                     lastBeatIdx = i;
-                    if (navigator.vibrate) navigator.vibrate(12);
-                    // Full-screen metronome flash
-                    var bd = document.getElementById('beat-backdrop');
-                    if (bd) {
-                        bd.style.background = 'rgba(0,255,136,0.05)';
-                        setTimeout(function() { if (bd) bd.style.background = 'rgba(0,255,136,0)'; }, 80);
-                    }
+                    if (navigator.vibrate) navigator.vibrate(10);
                 }
             } else if (isPast) {
                 ctx.strokeStyle = 'rgba(255,255,255,0.15)';
@@ -2178,75 +2221,6 @@ document.addEventListener('keydown', function(e) {
 document.getElementById('review-overlay').addEventListener('click', function(e) {
     if (e.target === this) closeReview();
 });
-
-// ── SWIPE NUDGE on TAP & CUT buttons ─────────────────────────
-// Swipe Left/Right on TAP → nudge activeWord.s by ±10ms
-// Swipe Up/Down   on TAP → nudge activeWord.e by ±10ms
-// Same axes on CUT  → nudge current split part .s / .e
-(function() {
-    var SWIPE_THRESHOLD = 18; // px needed to count as a swipe
-    var NUDGE_MS = 0.01;       // 10ms
-
-    function addSwipeNudge(el, onSwipe) {
-        var sx = 0, sy = 0, moved = false;
-        el.addEventListener('touchstart', function(e) {
-            sx = e.touches[0].clientX;
-            sy = e.touches[0].clientY;
-            moved = false;
-        }, { passive: true });
-        el.addEventListener('touchmove', function(e) {
-            var dx = e.touches[0].clientX - sx;
-            var dy = e.touches[0].clientY - sy;
-            if (!moved && (Math.abs(dx) > SWIPE_THRESHOLD || Math.abs(dy) > SWIPE_THRESHOLD)) {
-                moved = true;
-                var axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
-                var dir  = axis === 'x' ? (dx > 0 ? 1 : -1) : (dy > 0 ? 1 : -1);
-                onSwipe(axis, dir);
-                // Reset origin so repeated swipes work
-                sx = e.touches[0].clientX;
-                sy = e.touches[0].clientY;
-            }
-        }, { passive: true });
-    }
-
-    // TAP button nudges
-    addSwipeNudge(document.getElementById('tap-btn'), function(axis, dir) {
-        if (!S.lyrics.length || S.li >= S.lyrics.length) return;
-        var line = S.lyrics[S.li];
-        if (!line || line.type !== 'lyric') return;
-        var word = line.words[S.wi];
-        if (!word) return;
-        if (axis === 'x' && word.s !== null) {
-            word.s = Math.max(0, word.s + dir * NUDGE_MS);
-            if (S.wi === 0) line.time = word.s;
-            genLRC(); updateCtx();
-            if (navigator.vibrate) navigator.vibrate(6);
-        } else if (axis === 'y' && word.e !== null) {
-            word.e = Math.max(0, word.e + dir * NUDGE_MS);
-            genLRC(); updateCtx();
-            if (navigator.vibrate) navigator.vibrate(6);
-        }
-    });
-
-    // CUT button nudges — targets current split part's .s (x) or .e (y)
-    addSwipeNudge(document.getElementById('music-btn'), function(axis, dir) {
-        if (!splitState) return;
-        var word = S.lyrics[splitState.li] && S.lyrics[splitState.li].words[splitState.wi];
-        if (!word) return;
-        var partIdx = Math.max(0, splitState.partIdx - 1);
-        var part = word.splits[partIdx];
-        if (!part) return;
-        if (axis === 'x' && part.s !== null) {
-            part.s = Math.max(0, part.s + dir * NUDGE_MS);
-            genLRC(); updateCtx();
-            if (navigator.vibrate) navigator.vibrate(6);
-        } else if (axis === 'y' && part.e !== null) {
-            part.e = Math.max(0, part.e + dir * NUDGE_MS);
-            genLRC(); updateCtx();
-            if (navigator.vibrate) navigator.vibrate(6);
-        }
-    });
-})();
 </script>
 </body>
 </html>
