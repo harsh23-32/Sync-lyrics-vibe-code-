@@ -521,9 +521,9 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 
 <!-- TOPBAR -->
 <div class="topbar">
-    <button class="btn" onclick="openDrawer()">☰ Menu</button>
+    <button class="btn" onclick="toggleDrawer()">☰ Menu</button>
     <span class="time-disp" id="time-disp">00:00.00</span>
-    <button class="btn" id="preview-btn" onclick="openPreview()" style="opacity:0.4;pointer-events:none;">▶ Preview</button>
+    <button class="btn" id="preview-btn" onclick="togglePreview()" style="opacity:0.4;pointer-events:none;">▶ Preview</button>
 </div>
 
 <!-- PREVIEW OVERLAY -->
@@ -680,24 +680,32 @@ function createPlayer(id) {
 function startLoop() {
     cancelAnimationFrame(rafId);
     (function loop() {
+        var t = 0, d = 0;
         if (player && typeof player.getCurrentTime === 'function') {
-            try {
-                var t = player.getCurrentTime(), d = player.getDuration() || 0;
-                document.getElementById('time-disp').textContent = fmtDisp(t);
-                document.getElementById('curr-t').textContent = fmtShort(t);
-                document.getElementById('dur-t').textContent  = fmtShort(d);
-                var bar = document.getElementById('seek-bar');
-                if (document.activeElement !== bar) { bar.max = d || 100; bar.value = t; }
-
-            } catch(e) {}
+            try { t = player.getCurrentTime(); d = player.getDuration() || 0; } catch(e) {}
+        } else {
+            // Audio-only mode: drive display from beat audio clock
+            var bt = getBeatAudioTime();
+            if (bt !== null) { t = bt; d = beatAudioBuffer ? beatAudioBuffer.duration : 0; }
         }
+        document.getElementById('time-disp').textContent = fmtDisp(t);
+        document.getElementById('curr-t').textContent = fmtShort(t);
+        document.getElementById('dur-t').textContent  = fmtShort(d);
+        var bar = document.getElementById('seek-bar');
+        if (document.activeElement !== bar) { bar.max = d || 100; bar.value = t; }
         rafId = requestAnimationFrame(loop);
     })();
 }
 
 function now() {
-    if (!player || typeof player.getCurrentTime !== 'function') return 0;
-    try { return player.getCurrentTime(); } catch(e) { return 0; }
+    // If YouTube player is available and ready, use it
+    if (player && typeof player.getCurrentTime === 'function') {
+        try { var yt = player.getCurrentTime(); if (yt > 0 || isPlaying) return yt; } catch(e) {}
+    }
+    // Audio-only fallback: use the beat audio clock when no YouTube player is loaded
+    var bt = getBeatAudioTime();
+    if (bt !== null && bt >= 0) return bt;
+    return 0;
 }
 
 // ── Play button ────────────────────────────────────────────
@@ -709,7 +717,20 @@ function updatePlayBtn() {
     btn.classList.toggle('playing', isPlaying);
 }
 function togglePlay() {
-    if (!player || typeof player.getPlayerState !== 'function') return;
+    // Audio-only mode: no YouTube player needed when a beat file is loaded
+    if (!player || typeof player.getPlayerState !== 'function') {
+        if (!beatAudioBuffer || !beatAudioCtx) return;
+        if (beatPlaying) {
+            // Pause: stop the source and record position
+            if (beatAudioSource) { try { beatAudioSource.stop(); } catch(e) {} beatAudioSource = null; }
+            beatPlaying = false; isPlaying = false;
+        } else {
+            if (beatAudioCtx.state === 'suspended') beatAudioCtx.resume();
+            syncBeatAudio();
+            isPlaying = true;
+        }
+        updatePlayBtn(); return;
+    }
     try {
         if (player.getPlayerState() === 1) { player.pauseVideo(); isPlaying = false; }
         else { player.playVideo(); isPlaying = true; }
@@ -1629,6 +1650,10 @@ function seekBy(n) { if (player) try { player.seekTo(now() + n, true); } catch(e
 function seekBar()  { if (player) try { player.seekTo(+document.getElementById('seek-bar').value, true); } catch(e) {} }
 function openDrawer()  { document.getElementById('drawer').classList.add('open'); document.getElementById('overlay').classList.add('open'); }
 function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('overlay').classList.remove('open'); }
+function toggleDrawer() {
+    var isOpen = document.getElementById('drawer').classList.contains('open');
+    if (isOpen) closeDrawer(); else openDrawer();
+}
 
 // ── Time formats ───────────────────────────────────────────
 function fmtDisp(s) {
@@ -1732,6 +1757,10 @@ function closePreview() {
     document.getElementById('preview-overlay').classList.remove('open');
     cancelAnimationFrame(previewRafId);
     previewRafId = null;
+}
+function togglePreview() {
+    var isOpen = document.getElementById('preview-overlay').classList.contains('open');
+    if (isOpen) closePreview(); else openPreview();
 }
 
 function redoLine(li) {
@@ -1925,6 +1954,8 @@ function loadAudioFile(input) {
                 document.getElementById('beat-bar').classList.add('visible');
                 document.getElementById('beat-bpm-label').textContent = beatBpm.toFixed(1) + ' BPM';
                 startBeatVisualization();
+                // Audio-only mode: start the display loop so time updates without YouTube
+                startLoop();
             }, 50);
         }, function() {
             status.textContent = '❌ Could not decode audio';
